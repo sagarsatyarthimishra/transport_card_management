@@ -1,43 +1,60 @@
 import { NextResponse } from "next/server";
-import { Types } from "mongoose";
 
 import { getCurrentSession } from "@/lib/auth";
 import { connectToDatabase } from "@/lib/mongodb";
+
 import Card from "@/models/Card";
-import GeneratedFile from "@/models/GeneratedFile";
+import SDHCard from "@/models/SDHCard";
+
 import Transaction from "@/models/Transaction";
+import SDHTransaction from "@/models/SDHTransaction";
+
+import GeneratedFile from "@/models/GeneratedFile";
 
 export const runtime = "nodejs";
 
-type Period = "today" | "7days" | "30days";
+type Period = "7days" | "30days" | "90days";
 
-function getStartDate(period: Period) {
+function getPeriodStart(period: Period): Date {
   const now = new Date();
 
-  if (period === "today") {
-    const start = new Date(now);
-    start.setHours(0, 0, 0, 0);
-    return start;
-  }
-
-  if (period === "7days") {
-    const start = new Date(now);
-    start.setDate(start.getDate() - 6);
-    start.setHours(0, 0, 0, 0);
-    return start;
-  }
+  const days =
+    period === "7days"
+      ? 7
+      : period === "90days"
+        ? 90
+        : 30;
 
   const start = new Date(now);
-  start.setDate(start.getDate() - 29);
-  start.setHours(0, 0, 0, 0);
+
+  start.setDate(start.getDate() - days);
 
   return start;
+}
+
+function getPeriodDays(period: Period): number {
+  if (period === "7days") {
+    return 7;
+  }
+
+  if (period === "90days") {
+    return 90;
+  }
+
+  return 30;
+}
+
+function escapeRegex(value: string): string {
+  return value.replace(
+    /[.*+?^${}()|[\]\\]/g,
+    "\\$&",
+  );
 }
 
 export async function GET(request: Request) {
   try {
     // ============================================================
-    // Authentication
+    // 1. Authentication
     // ============================================================
 
     const session = await getCurrentSession();
@@ -48,80 +65,89 @@ export async function GET(request: Request) {
           success: false,
           message: "Unauthorized.",
         },
-        { status: 401 },
+        {
+          status: 401,
+        },
       );
     }
 
     // ============================================================
-    // Period
+    // 2. Period
     // ============================================================
 
     const { searchParams } = new URL(request.url);
 
-    const periodParam = searchParams.get("period");
+    const requestedPeriod =
+      searchParams.get("period")?.toLowerCase();
 
     const period: Period =
-      periodParam === "today" ||
-      periodParam === "7days" ||
-      periodParam === "30days"
-        ? periodParam
+      requestedPeriod === "7days" ||
+      requestedPeriod === "90days"
+        ? requestedPeriod
         : "30days";
 
+    const periodStart = getPeriodStart(period);
+    const periodDays = getPeriodDays(period);
+
     // ============================================================
-    // Database
+    // 3. Database
     // ============================================================
 
     await connectToDatabase();
 
-    const userObjectId = new Types.ObjectId(session.userId);
-
-    const startDate = getStartDate(period);
-    const endDate = new Date();
-
     // ============================================================
-    // Base filters
+    // 4. User ID
     // ============================================================
 
-    const transactionFilter = {
-      userId: userObjectId,
-      createdAt: {
-        $gte: startDate,
-        $lte: endDate,
-      },
-    };
+    const userId = session.userId;
 
-    const fileFilter = {
-      userId: userObjectId,
+    // ============================================================
+    // 5. Transaction date filter
+    // ============================================================
+
+    const transactionDateFilter = {
+      userId,
       createdAt: {
-        $gte: startDate,
-        $lte: endDate,
+        $gte: periodStart,
       },
     };
 
     // ============================================================
-    // KPI queries
+    // 6. Count cards
+    //
+    // Cards are all-time counts.
     // ============================================================
 
     const [
-      totalCards,
-      totalTransactions,
-      transactionSummary,
-      successfulTransactions,
-      pendingTransactions,
-      failedTransactions,
-      totalFiles,
-      recentTransactions,
+      mmmCardCount,
+      sdhCardCount,
     ] = await Promise.all([
       Card.countDocuments({
-        userId: userObjectId,
+        userId,
       }),
 
-      Transaction.countDocuments(transactionFilter),
+      SDHCard.countDocuments({
+        userId,
+      }),
+    ]);
+
+    // ============================================================
+    // 7. MMM transaction statistics
+    // ============================================================
+
+    const [
+      mmmTransactionCount,
+      mmmAmountResult,
+    ] = await Promise.all([
+      Transaction.countDocuments(
+        transactionDateFilter,
+      ),
 
       Transaction.aggregate([
         {
-          $match: transactionFilter,
+          $match: transactionDateFilter,
         },
+
         {
           $group: {
             _id: null,
@@ -131,159 +157,372 @@ export async function GET(request: Request) {
           },
         },
       ]),
-
-      Transaction.countDocuments({
-        ...transactionFilter,
-        status: "successful",
-      }),
-
-      Transaction.countDocuments({
-        ...transactionFilter,
-        status: "pending",
-      }),
-
-      Transaction.countDocuments({
-        ...transactionFilter,
-        status: "failed",
-      }),
-
-      GeneratedFile.countDocuments(fileFilter),
-
-      Transaction.find(transactionFilter)
-        .select(
-          "_id cardNumber amount status createdAt",
-        )
-        .sort({
-          createdAt: -1,
-        })
-        .limit(8)
-        .lean(),
     ]);
 
     // ============================================================
-    // Daily trend
+    // 8. SDH transaction statistics
     // ============================================================
 
-    const trendData = await Transaction.aggregate([
-      {
-        $match: transactionFilter,
-      },
+    const [
+      sdhTransactionCount,
+      sdhAmountResult,
+    ] = await Promise.all([
+      SDHTransaction.countDocuments(
+        transactionDateFilter,
+      ),
 
-      {
-        $group: {
-          _id: {
-            $dateToString: {
-              format: "%Y-%m-%d",
-              date: "$createdAt",
+      SDHTransaction.aggregate([
+        {
+          $match: transactionDateFilter,
+        },
+
+        {
+          $group: {
+            _id: null,
+            totalAmount: {
+              $sum: "$amount",
             },
           },
-
-          count: {
-            $sum: 1,
-          },
-
-          amount: {
-            $sum: "$amount",
-          },
         },
-      },
-
-      {
-        $sort: {
-          _id: 1,
-        },
-      },
+      ]),
     ]);
 
     // ============================================================
-    // Create complete date range
+    // 9. Amounts
+    // ============================================================
+
+    const mmmAmount = Number(
+      mmmAmountResult?.[0]?.totalAmount ?? 0,
+    );
+
+    const sdhAmount = Number(
+      sdhAmountResult?.[0]?.totalAmount ?? 0,
+    );
+
+    // ============================================================
+    // 10. Generated files
+    //
+    // MMM:
+    // SALARY_MMM11473...
+    //
+    // SDH:
+    // SALARY_SDH09066...
+    //
+    // Files are shared in GeneratedFile collection.
+    // ============================================================
+
+    const fileDateFilter = {
+      userId,
+      createdAt: {
+        $gte: periodStart,
+      },
+    };
+
+    const [
+      mmmFileCount,
+      sdhFileCount,
+    ] = await Promise.all([
+      GeneratedFile.countDocuments({
+        ...fileDateFilter,
+
+        fileName: {
+          $regex: `^SALARY_${escapeRegex(
+            "MMM11473",
+          )}_`,
+          $options: "i",
+        },
+      }),
+
+      GeneratedFile.countDocuments({
+        ...fileDateFilter,
+
+        fileName: {
+          $regex: `^SALARY_${escapeRegex(
+            "SDH09066",
+          )}_`,
+          $options: "i",
+        },
+      }),
+    ]);
+
+    // ============================================================
+    // 11. Transaction overview
+    //
+    // Combined MMM + SDH amount per day.
+    // ============================================================
+
+    const [
+      mmmTrend,
+      sdhTrend,
+    ] = await Promise.all([
+      Transaction.aggregate([
+        {
+          $match: transactionDateFilter,
+        },
+
+        {
+          $group: {
+            _id: {
+              $dateToString: {
+                format: "%Y-%m-%d",
+                date: "$createdAt",
+              },
+            },
+
+            amount: {
+              $sum: "$amount",
+            },
+
+            count: {
+              $sum: 1,
+            },
+          },
+        },
+
+        {
+          $sort: {
+            _id: 1,
+          },
+        },
+      ]),
+
+      SDHTransaction.aggregate([
+        {
+          $match: transactionDateFilter,
+        },
+
+        {
+          $group: {
+            _id: {
+              $dateToString: {
+                format: "%Y-%m-%d",
+                date: "$createdAt",
+              },
+            },
+
+            amount: {
+              $sum: "$amount",
+            },
+
+            count: {
+              $sum: 1,
+            },
+          },
+        },
+
+        {
+          $sort: {
+            _id: 1,
+          },
+        },
+      ]),
+    ]);
+
+    // ============================================================
+    // 12. Merge MMM + SDH trend
     // ============================================================
 
     const trendMap = new Map<
       string,
       {
-        count: number;
+        date: string;
         amount: number;
+        count: number;
       }
     >();
 
-    for (const item of trendData) {
+    for (const item of mmmTrend) {
       trendMap.set(item._id, {
-        count: item.count,
-        amount: item.amount,
+        date: item._id,
+        amount: Number(item.amount ?? 0),
+        count: Number(item.count ?? 0),
       });
     }
 
-    const trend: Array<{
-      date: string;
-      count: number;
-      amount: number;
-    }> = [];
+    for (const item of sdhTrend) {
+      const existing = trendMap.get(item._id);
 
-    const cursor = new Date(startDate);
+      if (existing) {
+        existing.amount += Number(
+          item.amount ?? 0,
+        );
 
-    while (cursor <= endDate) {
-      const year = cursor.getFullYear();
-      const month = String(
-        cursor.getMonth() + 1,
-      ).padStart(2, "0");
-      const day = String(
-        cursor.getDate(),
-      ).padStart(2, "0");
-
-      const dateKey = `${year}-${month}-${day}`;
-
-      const existing = trendMap.get(dateKey);
-
-      trend.push({
-        date: dateKey,
-        count: existing?.count ?? 0,
-        amount: existing?.amount ?? 0,
-      });
-
-      cursor.setDate(cursor.getDate() + 1);
+        existing.count += Number(
+          item.count ?? 0,
+        );
+      } else {
+        trendMap.set(item._id, {
+          date: item._id,
+          amount: Number(item.amount ?? 0),
+          count: Number(item.count ?? 0),
+        });
+      }
     }
 
+    const trend = Array.from(
+      trendMap.values(),
+    ).sort((a, b) =>
+      a.date.localeCompare(b.date),
+    );
+
     // ============================================================
-    // Response
+    // 13. Recent MMM transactions
     // ============================================================
+
+    const recentMMM =
+      await Transaction.find({
+        userId,
+      })
+        .select(
+          "cardNumber amount createdAt",
+        )
+        .sort({
+          createdAt: -1,
+        })
+        .limit(5)
+        .lean();
+
+    // ============================================================
+    // 14. Recent SDH transactions
+    // ============================================================
+
+    const recentSDH =
+      await SDHTransaction.find({
+        userId,
+      })
+        .select(
+          "cardNumber amount createdAt",
+        )
+        .sort({
+          createdAt: -1,
+        })
+        .limit(5)
+        .lean();
+
+    // ============================================================
+    // 15. Merge recent transactions
+    // ============================================================
+
+    const recentTransactions = [
+      ...recentMMM.map(
+        (transaction) => ({
+          id: transaction._id.toString(),
+
+          department: "MMM",
+
+          cardNumber:
+            transaction.cardNumber,
+
+          amount:
+            Number(transaction.amount),
+
+          createdAt:
+            transaction.createdAt,
+        }),
+      ),
+
+      ...recentSDH.map(
+        (transaction) => ({
+          id: transaction._id.toString(),
+
+          department: "SDH",
+
+          cardNumber:
+            transaction.cardNumber,
+
+          amount:
+            Number(transaction.amount),
+
+          createdAt:
+            transaction.createdAt,
+        }),
+      ),
+    ]
+      .sort(
+        (a, b) =>
+          new Date(b.createdAt).getTime() -
+          new Date(a.createdAt).getTime(),
+      )
+      .slice(0, 8);
+
+    // ============================================================
+    // 16. Combined values
+    // ============================================================
+
+    const totalCards =
+      mmmCardCount + sdhCardCount;
+
+    const totalTransactions =
+      mmmTransactionCount +
+      sdhTransactionCount;
 
     const totalAmount =
-      transactionSummary[0]?.totalAmount ?? 0;
+      mmmAmount + sdhAmount;
+
+    const totalFiles =
+      mmmFileCount + sdhFileCount;
+
+    // ============================================================
+    // 17. Response
+    // ============================================================
 
     return NextResponse.json(
       {
         success: true,
 
         data: {
-          cards: {
-            total: totalCards,
-          },
+          period,
 
-          transactions: {
-            total: totalTransactions,
+          periodDays,
+
+          summary: {
+            totalCards,
+
+            totalTransactions,
+
             totalAmount,
-            pending: pendingTransactions,
-            successful: successfulTransactions,
-            failed: failedTransactions,
+
+            totalFiles,
           },
 
-          files: {
-            total: totalFiles,
+          mmm: {
+            cards: {
+              total: mmmCardCount,
+            },
+
+            transactions: {
+              total: mmmTransactionCount,
+
+              totalAmount: mmmAmount,
+            },
+
+            files: {
+              total: mmmFileCount,
+            },
+          },
+
+          sdh: {
+            cards: {
+              total: sdhCardCount,
+            },
+
+            transactions: {
+              total: sdhTransactionCount,
+
+              totalAmount: sdhAmount,
+            },
+
+            files: {
+              total: sdhFileCount,
+            },
           },
 
           trend,
 
-          recentTransactions:
-            recentTransactions.map((transaction) => ({
-              id: transaction._id.toString(),
-              cardNumber: transaction.cardNumber,
-              amount: transaction.amount,
-              status: transaction.status,
-              createdAt: transaction.createdAt,
-            })),
+          recentTransactions,
         },
       },
+
       {
         status: 200,
       },
@@ -297,7 +536,8 @@ export async function GET(request: Request) {
     return NextResponse.json(
       {
         success: false,
-        message: "Unable to load dashboard statistics.",
+        message:
+          "Unable to load dashboard statistics.",
       },
       {
         status: 500,
