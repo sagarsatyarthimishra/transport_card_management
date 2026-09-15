@@ -12,14 +12,15 @@ import {
   ReceiptText,
   Settings,
   ShieldCheck,
-  User,
   X,
 } from "lucide-react";
-import { usePathname } from "next/navigation";
+
+import { usePathname, useRouter } from "next/navigation";
 import { useState } from "react";
 
 type DashboardShellProps = {
   children: React.ReactNode;
+
   user: {
     name?: string | null;
     email?: string | null;
@@ -35,69 +36,120 @@ type NavItem = {
   soon?: boolean;
 };
 
+// ============================================================
+// MAIN MENU
+// ============================================================
+
 const mainMenu: NavItem[] = [
   {
     label: "Dashboard",
     href: "/dashboard",
-    icon: <Grid2X2 className="h-[18px] w-[18px]" />,
+    icon: (
+      <Grid2X2 className="h-[18px] w-[18px]" />
+    ),
   },
+
   {
     label: "MMM Card Management",
     href: "/cards",
-    icon: <CreditCard className="h-[18px] w-[18px]" />,
+    icon: (
+      <CreditCard className="h-[18px] w-[18px]" />
+    ),
   },
+
   {
     label: "SDH Card Management",
     href: "/card",
-    icon: <CreditCard className="h-[18px] w-[18px]" />,
+    icon: (
+      <CreditCard className="h-[18px] w-[18px]" />
+    ),
   },
+
   {
     label: "MMM Transactions",
     href: "/transactions",
-    icon: <ReceiptText className="h-[18px] w-[18px]" />,
+    icon: (
+      <ReceiptText className="h-[18px] w-[18px]" />
+    ),
   },
+
   {
     label: "SDH Transactions",
     href: "/transaction",
-    icon: <ReceiptText className="h-[18px] w-[18px]" />,
+    icon: (
+      <ReceiptText className="h-[18px] w-[18px]" />
+    ),
   },
+
   {
     label: "Files",
     href: "/files",
-    icon: <FileText className="h-[18px] w-[18px]" />,
+    icon: (
+      <FileText className="h-[18px] w-[18px]" />
+    ),
   },
+
   {
     label: "Create Transaction File",
     href: "#",
-    icon: <FileText className="h-[18px] w-[18px]" />,
+    icon: (
+      <FileText className="h-[18px] w-[18px]" />
+    ),
     disabled: true,
     soon: true,
   },
+
   {
     label: "Reports & Analytics",
     href: "#",
-    icon: <BarChart3 className="h-[18px] w-[18px]" />,
+    icon: (
+      <BarChart3 className="h-[18px] w-[18px]" />
+    ),
     disabled: true,
     soon: true,
   },
 ];
 
+// ============================================================
+// SYSTEM MENU
+// ============================================================
+
 const systemMenu: NavItem[] = [
   {
     label: "Settings",
     href: "#",
-    icon: <Settings className="h-[18px] w-[18px]" />,
+    icon: (
+      <Settings className="h-[18px] w-[18px]" />
+    ),
     disabled: true,
     soon: true,
   },
 ];
+
+// ============================================================
+// DASHBOARD SHELL
+// ============================================================
 
 export default function DashboardShell({
   children,
   user,
 }: DashboardShellProps) {
   const pathname = usePathname();
-  const [mobileOpen, setMobileOpen] = useState(false);
+  const router = useRouter();
+
+  const [
+    mobileOpen,
+    setMobileOpen,
+  ] = useState(false);
+
+  const [
+    isLoggingOut,
+    setIsLoggingOut,
+  ] = useState(false);
+
+  // ==========================================================
+  // User display information
+  // ==========================================================
 
   const displayName =
     user.name?.trim() ||
@@ -112,38 +164,91 @@ export default function DashboardShell({
       .split(" ")
       .filter(Boolean)
       .slice(0, 2)
-      .map((part) => part[0]?.toUpperCase())
+      .map(
+        (part) =>
+          part[0]?.toUpperCase(),
+      )
       .join("") || "U";
 
-  /*
-   * IMPORTANT:
-   *
-   * Exact pathname matching is used.
-   *
-   * Do NOT use:
-   *
-   * pathname.includes("/card")
-   *
-   * because:
-   *
-   * /cards and /card
-   *
-   * would both become active.
-   */
-  function isActive(href: string) {
-    if (href === "/dashboard") {
-      return pathname === "/dashboard";
+  // ==========================================================
+  // IMPORTANT:
+  // Exact pathname matching
+  //
+  // /card  !== /cards
+  // /transaction !== /transactions
+  // ==========================================================
+
+  function isActive(
+    href: string,
+  ) {
+    if (
+      href === "/dashboard"
+    ) {
+      return pathname ===
+        "/dashboard";
     }
 
     return pathname === href;
   }
 
-  function handleLogout() {
-    window.location.href = "/api/auth/logout";
+  // ==========================================================
+  // Logout
+  //
+  // API expects POST.
+  // ==========================================================
+
+  async function handleLogout() {
+    if (isLoggingOut) {
+      return;
+    }
+
+    setIsLoggingOut(true);
+
+    try {
+      const response =
+        await fetch(
+          "/api/auth/logout",
+          {
+            method: "POST",
+            headers: {
+              "Content-Type":
+                "application/json",
+            },
+            cache: "no-store",
+          },
+        );
+
+      if (!response.ok) {
+        throw new Error(
+          "Logout failed",
+        );
+      }
+
+      router.replace("/login");
+      router.refresh();
+    } catch (error) {
+      console.error(
+        "Logout error:",
+        error,
+      );
+
+      setIsLoggingOut(false);
+    }
   }
 
-  function renderNavItem(item: NavItem) {
-    const active = isActive(item.href);
+  // ==========================================================
+  // Navigation item
+  // ==========================================================
+
+  function renderNavItem(
+    item: NavItem,
+  ) {
+    const active =
+      isActive(item.href);
+
+    // --------------------------------------------------------
+    // Disabled item
+    // --------------------------------------------------------
 
     if (item.disabled) {
       return (
@@ -168,11 +273,17 @@ export default function DashboardShell({
       );
     }
 
+    // --------------------------------------------------------
+    // Active / normal item
+    // --------------------------------------------------------
+
     return (
       <a
         key={item.label}
         href={item.href}
-        onClick={() => setMobileOpen(false)}
+        onClick={() =>
+          setMobileOpen(false)
+        }
         className={[
           "group relative flex min-h-[42px] items-center gap-3 rounded-xl px-3 text-sm transition-all duration-200",
           active
@@ -201,9 +312,16 @@ export default function DashboardShell({
     );
   }
 
+  // ==========================================================
+  // Sidebar
+  // ==========================================================
+
   const sidebar = (
-    <aside className="flex h-full w-[256px] flex-col border-r border-slate-200 bg-white">
-      {/* Brand */}
+    <aside className="flex h-full w-[256px] shrink-0 flex-col border-r border-slate-200 bg-white">
+      {/* =====================================================
+          BRAND
+      ====================================================== */}
+
       <div className="flex h-[78px] shrink-0 items-center border-b border-slate-200 px-5">
         <div className="flex items-center gap-3">
           <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-blue-600 shadow-lg shadow-blue-600/20">
@@ -222,14 +340,19 @@ export default function DashboardShell({
         </div>
       </div>
 
-      {/* Navigation */}
+      {/* =====================================================
+          NAVIGATION
+      ====================================================== */}
+
       <div className="flex-1 overflow-y-auto px-3 py-5">
         <p className="mb-3 px-3 text-[10px] font-bold uppercase tracking-[0.16em] text-slate-400">
           Main Menu
         </p>
 
         <nav className="space-y-1">
-          {mainMenu.map(renderNavItem)}
+          {mainMenu.map(
+            renderNavItem,
+          )}
         </nav>
 
         <div className="my-5 border-t border-slate-100" />
@@ -239,11 +362,16 @@ export default function DashboardShell({
         </p>
 
         <nav className="space-y-1">
-          {systemMenu.map(renderNavItem)}
+          {systemMenu.map(
+            renderNavItem,
+          )}
         </nav>
       </div>
 
-      {/* Bottom user */}
+      {/* =====================================================
+          USER SECTION
+      ====================================================== */}
+
       <div className="shrink-0 border-t border-slate-200 p-3">
         <div className="mb-2 flex items-center gap-3 rounded-xl bg-slate-50 px-3 py-2.5">
           <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-blue-100 text-xs font-bold text-blue-700">
@@ -261,39 +389,66 @@ export default function DashboardShell({
           </div>
         </div>
 
+        {/* Logout */}
+
         <button
           type="button"
           onClick={handleLogout}
-          className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium text-slate-500 transition-colors hover:bg-red-50 hover:text-red-600"
+          disabled={isLoggingOut}
+          className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium text-slate-500 transition-colors hover:bg-red-50 hover:text-red-600 disabled:cursor-not-allowed disabled:opacity-60"
         >
           <LogOut className="h-[18px] w-[18px]" />
-          Sign Out
+
+          <span>
+            {isLoggingOut
+              ? "Signing out..."
+              : "Sign Out"}
+          </span>
         </button>
 
         <div className="mt-2 flex items-center justify-center gap-1.5 text-[10px] text-slate-400">
           <HelpCircle className="h-3.5 w-3.5" />
-          <span>Transport Payment System</span>
+
+          <span>
+            Transport Payment System
+          </span>
         </div>
       </div>
     </aside>
   );
 
+  // ==========================================================
+  // RETURN
+  // ==========================================================
+
   return (
     <div className="flex min-h-screen bg-[#f6f9fd]">
-      {/* Desktop Sidebar */}
-      <div className="hidden lg:block">
+      {/* =====================================================
+          DESKTOP SIDEBAR
+      ====================================================== */}
+
+      <div className="fixed inset-y-0 left-0 z-40 hidden lg:block">
         {sidebar}
       </div>
 
-      {/* Mobile Sidebar */}
+      {/* =====================================================
+          MOBILE SIDEBAR
+      ====================================================== */}
+
       {mobileOpen && (
         <div className="fixed inset-0 z-50 lg:hidden">
+          {/* Overlay */}
+
           <button
             type="button"
             aria-label="Close menu"
-            onClick={() => setMobileOpen(false)}
+            onClick={() =>
+              setMobileOpen(false)
+            }
             className="absolute inset-0 bg-slate-900/40"
           />
+
+          {/* Sidebar */}
 
           <div className="relative h-full">
             {sidebar}
@@ -301,8 +456,10 @@ export default function DashboardShell({
             <button
               type="button"
               aria-label="Close navigation"
-              onClick={() => setMobileOpen(false)}
-              className="absolute right-3 top-4 flex h-9 w-9 items-center justify-center rounded-lg bg-slate-100 text-slate-600"
+              onClick={() =>
+                setMobileOpen(false)
+              }
+              className="absolute right-3 top-4 flex h-9 w-9 items-center justify-center rounded-lg bg-slate-100 text-slate-600 shadow-sm"
             >
               <X className="h-5 w-5" />
             </button>
@@ -310,14 +467,24 @@ export default function DashboardShell({
         </div>
       )}
 
-      {/* Main */}
-      <div className="flex min-w-0 flex-1 flex-col">
-        {/* Top Header */}
-        <header className="sticky top-0 z-30 flex h-[78px] shrink-0 items-center justify-between border-b border-slate-200 bg-white/95 px-4 backdrop-blur sm:px-6">
+      {/* =====================================================
+          MAIN AREA
+      ====================================================== */}
+
+      <div className="flex min-h-screen min-w-0 flex-1 flex-col lg:ml-[256px]">
+        {/* ===================================================
+            TOP HEADER
+        ==================================================== */}
+
+        <header className="sticky top-0 z-30 flex h-[78px] shrink-0 items-center justify-between border-b border-slate-200 bg-white/95 px-4 backdrop-blur sm:px-6 lg:px-7">
           <div className="flex min-w-0 items-center gap-3">
+            {/* Mobile menu */}
+
             <button
               type="button"
-              onClick={() => setMobileOpen(true)}
+              onClick={() =>
+                setMobileOpen(true)
+              }
               className="flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 text-slate-600 lg:hidden"
             >
               <Menu className="h-5 w-5" />
@@ -335,7 +502,10 @@ export default function DashboardShell({
           </div>
 
           <div className="flex items-center gap-3">
-            {/* Search */}
+            {/* =================================================
+                Search
+            ================================================== */}
+
             <div className="hidden w-[280px] md:block">
               <div className="flex h-10 items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3">
                 <svg
@@ -345,7 +515,12 @@ export default function DashboardShell({
                   stroke="currentColor"
                   strokeWidth="2"
                 >
-                  <circle cx="11" cy="11" r="7" />
+                  <circle
+                    cx="11"
+                    cy="11"
+                    r="7"
+                  />
+
                   <path d="m20 20-4-4" />
                 </svg>
 
@@ -357,7 +532,10 @@ export default function DashboardShell({
               </div>
             </div>
 
-            {/* Notification */}
+            {/* =================================================
+                Notification
+            ================================================== */}
+
             <button
               type="button"
               className="relative flex h-10 w-10 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-500 transition-colors hover:bg-slate-50 hover:text-blue-600"
@@ -367,7 +545,10 @@ export default function DashboardShell({
               <span className="absolute right-2 top-2 h-1.5 w-1.5 rounded-full bg-blue-600" />
             </button>
 
-            {/* User */}
+            {/* =================================================
+                User
+            ================================================== */}
+
             <div className="hidden items-center gap-2 sm:flex">
               <div className="flex h-9 w-9 items-center justify-center rounded-full bg-blue-100 text-xs font-bold text-blue-700">
                 {initials}
@@ -386,9 +567,14 @@ export default function DashboardShell({
           </div>
         </header>
 
-        {/* Page */}
-        <main className="min-w-0 flex-1">
-          {children}
+        {/* ===================================================
+            PAGE CONTENT
+        ==================================================== */}
+
+        <main className="min-w-0 flex-1 px-4 py-5 sm:px-6 sm:py-6 lg:px-7 lg:py-7">
+          <div className="mx-auto w-full max-w-[1600px]">
+            {children}
+          </div>
         </main>
       </div>
     </div>
