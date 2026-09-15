@@ -1,1035 +1,474 @@
 "use client";
 
 import {
-  ArrowDownRight,
-  ArrowUpRight,
-  BarChart3,
+  ArrowRight,
   CreditCard,
-  FileSpreadsheet,
+  FileText,
+  IndianRupee,
   Plus,
-  ReceiptText,
-  RefreshCw,
-  ShieldCheck,
-  Upload,
-  Users,
+  Receipt,
+  TrendingUp,
 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
+import { useEffect, useState } from "react";
+import {
+  Area,
+  AreaChart,
+  CartesianGrid,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
 
-type DashboardStats = {
+import { Button } from "@/components/ui/button";
+import {
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+
+interface DashboardStats {
   cards: {
     total: number;
   };
-
   transactions: {
     total: number;
     totalAmount: number;
-    pending: number;
-    successful: number;
-    failed: number;
   };
-
   files: {
     total: number;
   };
-
   trend: Array<{
     date: string;
     count: number;
     amount: number;
   }>;
-
   recentTransactions: Array<{
-    id: string;
+    _id: string;
     cardNumber: string;
     amount: number;
-    status: "pending" | "successful" | "failed";
     createdAt: string;
   }>;
-};
-
-type Period = "7days" | "30days" | "90days";
-
-function formatCurrency(value: number) {
-  return new Intl.NumberFormat("en-IN", {
-    style: "currency",
-    currency: "INR",
-    maximumFractionDigits: 0,
-  }).format(value);
-}
-
-function formatNumber(value: number) {
-  return new Intl.NumberFormat("en-IN").format(value);
-}
-
-function formatDate(value: string) {
-  return new Intl.DateTimeFormat("en-IN", {
-    day: "2-digit",
-    month: "short",
-    year: "numeric",
-  }).format(new Date(value));
-}
-
-function maskCard(value: string) {
-  const normalized = value.replace(/\s+/g, "");
-
-  if (!normalized) {
-    return "—";
-  }
-
-  if (normalized.length <= 4) {
-    return normalized;
-  }
-
-  return `•••• ${normalized.slice(-4)}`;
-}
-
-function StatCard({
-  title,
-  value,
-  description,
-  icon,
-  iconClass,
-  href,
-}: {
-  title: string;
-  value: string;
-  description: string;
-  icon: React.ReactNode;
-  iconClass: string;
-  href?: string;
-}) {
-  const content = (
-    <div className="group h-full rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md">
-      <div className="flex items-start justify-between gap-4">
-        <div className="min-w-0">
-          <p className="text-sm font-medium text-slate-500">
-            {title}
-          </p>
-
-          <p className="mt-2 truncate text-2xl font-bold tracking-tight text-slate-900">
-            {value}
-          </p>
-
-          <p className="mt-2 text-xs text-slate-500">
-            {description}
-          </p>
-        </div>
-
-        <div
-          className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl ${iconClass}`}
-        >
-          {icon}
-        </div>
-      </div>
-    </div>
-  );
-
-  if (href) {
-    return (
-      <a href={href} className="block h-full">
-        {content}
-      </a>
-    );
-  }
-
-  return content;
-}
-
-function QuickAction({
-  href,
-  title,
-  description,
-  icon,
-}: {
-  href: string;
-  title: string;
-  description: string;
-  icon: React.ReactNode;
-}) {
-  return (
-    <a
-      href={href}
-      className="group flex items-center gap-3 rounded-xl border border-slate-200 bg-white p-4 transition-all duration-200 hover:border-blue-200 hover:bg-blue-50/40 hover:shadow-sm"
-    >
-      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-blue-50 text-blue-600 transition-colors group-hover:bg-blue-600 group-hover:text-white">
-        {icon}
-      </div>
-
-      <div className="min-w-0">
-        <p className="truncate text-sm font-semibold text-slate-900">
-          {title}
-        </p>
-
-        <p className="mt-0.5 truncate text-xs text-slate-500">
-          {description}
-        </p>
-      </div>
-    </a>
-  );
-}
-
-function StatusBadge({
-  status,
-}: {
-  status: "pending" | "successful" | "failed";
-}) {
-  if (status === "successful") {
-    return (
-      <span className="inline-flex items-center rounded-full bg-emerald-50 px-2.5 py-1 text-[11px] font-semibold text-emerald-700">
-        Successful
-      </span>
-    );
-  }
-
-  if (status === "failed") {
-    return (
-      <span className="inline-flex items-center rounded-full bg-red-50 px-2.5 py-1 text-[11px] font-semibold text-red-700">
-        Failed
-      </span>
-    );
-  }
-
-  return (
-    <span className="inline-flex items-center rounded-full bg-amber-50 px-2.5 py-1 text-[11px] font-semibold text-amber-700">
-      Pending
-    </span>
-  );
 }
 
 export default function DashboardPage() {
-  const [stats, setStats] =
-    useState<DashboardStats | null>(null);
-
-  const [period, setPeriod] =
-    useState<Period>("30days");
-
-  const [loading, setLoading] =
-    useState(true);
-
-  const [refreshing, setRefreshing] =
-    useState(false);
-
-  const [error, setError] =
-    useState("");
-
-  async function fetchDashboard(
-    selectedPeriod: Period = period,
-  ) {
-    try {
-      setError("");
-
-      const response = await fetch(
-        `/api/dashboard/stats?period=${selectedPeriod}`,
-        {
-          method: "GET",
-          cache: "no-store",
-        },
-      );
-
-      const result =
-        await response.json();
-
-      if (!response.ok || !result.success) {
-        throw new Error(
-          result.message ??
-            "Unable to load dashboard.",
-        );
-      }
-
-      setStats(result.data);
-    } catch (dashboardError) {
-      console.error(
-        "Dashboard loading error:",
-        dashboardError,
-      );
-
-      setError(
-        dashboardError instanceof Error
-          ? dashboardError.message
-          : "Unable to load dashboard.",
-      );
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
-  }
+  const [stats, setStats] = useState<DashboardStats | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [period, setPeriod] = useState("7");
 
   useEffect(() => {
-    fetchDashboard(period);
-
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    fetchStats();
   }, [period]);
 
-  function handleRefresh() {
-    setRefreshing(true);
-    fetchDashboard(period);
-  }
+  const fetchStats = async () => {
+    try {
+      setLoading(true);
 
-  const maxAmount = useMemo(() => {
-    if (!stats?.trend?.length) {
-      return 1;
+      const response = await fetch(
+        `/api/dashboard/stats?period=${period}`,
+        {
+          cache: "no-store",
+        }
+      );
+
+      const result = await response.json();
+
+      if (result.success) {
+        setStats(result.stats);
+      }
+    } catch (error) {
+      console.error("Failed to fetch dashboard stats:", error);
+    } finally {
+      setLoading(false);
     }
+  };
 
-    return Math.max(
-      ...stats.trend.map(
-        (item) => Number(item.amount) || 0,
-      ),
-      1,
-    );
-  }, [stats]);
+  const formatCurrency = (amount: number) => {
+    return new Intl.NumberFormat("en-IN", {
+      style: "currency",
+      currency: "INR",
+      maximumFractionDigits: 2,
+    }).format(amount || 0);
+  };
 
-  const successRate = useMemo(() => {
-    if (!stats?.transactions.total) {
-      return 0;
-    }
+  const formatDate = (date: string) => {
+    return new Date(date).toLocaleDateString("en-IN", {
+      day: "2-digit",
+      month: "short",
+      year: "numeric",
+    });
+  };
 
-    return (
-      (stats.transactions.successful /
-        stats.transactions.total) *
-      100
-    );
-  }, [stats]);
-
-  if (loading) {
-    return (
-      <div className="flex min-h-[70vh] items-center justify-center">
-        <div className="flex flex-col items-center gap-3 text-slate-500">
-          <RefreshCw className="h-7 w-7 animate-spin text-blue-600" />
-
-          <p className="text-sm">
-            Loading dashboard...
-          </p>
-        </div>
-      </div>
-    );
-  }
-
-  if (!stats || error) {
-    return (
-      <main className="min-h-full bg-[#f6f9fd] p-4 sm:p-6">
-        <div className="mx-auto max-w-7xl">
-          <div className="rounded-2xl border border-red-200 bg-red-50 p-6">
-            <h2 className="font-semibold text-red-900">
-              Unable to load dashboard
-            </h2>
-
-            <p className="mt-1 text-sm text-red-700">
-              {error ||
-                "Dashboard data is currently unavailable."}
-            </p>
-
-            <button
-              type="button"
-              onClick={handleRefresh}
-              className="mt-4 inline-flex items-center gap-2 rounded-xl bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800"
-            >
-              <RefreshCw className="h-4 w-4" />
-              Try Again
-            </button>
-          </div>
-        </div>
-      </main>
-    );
-  }
+  const chartData =
+    stats?.trend?.map((item) => ({
+      ...item,
+      name: new Date(item.date).toLocaleDateString("en-IN", {
+        day: "2-digit",
+        month: "short",
+      }),
+    })) || [];
 
   return (
-    <main className="min-h-full bg-[#f6f9fd]">
-      <div className="mx-auto max-w-[1600px] space-y-5 p-4 sm:p-5 lg:p-6">
-        {/* =====================================================
-            HEADER
-        ====================================================== */}
+    <div className="space-y-6">
+      {/* Header */}
+      <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight">
+            Dashboard
+          </h1>
+          <p className="text-muted-foreground">
+            Overview of your Transport Department payment management
+          </p>
+        </div>
 
-        <section className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
-          <div>
-            <div className="flex items-center gap-2">
-              <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-blue-50 text-blue-600">
-                <ShieldCheck className="h-4 w-4" />
-              </span>
+        <div className="flex items-center gap-2">
+          <select
+            value={period}
+            onChange={(e) => setPeriod(e.target.value)}
+            className="h-9 rounded-md border bg-background px-3 text-sm outline-none focus:ring-2 focus:ring-ring"
+          >
+            <option value="7">Last 7 Days</option>
+            <option value="30">Last 30 Days</option>
+            <option value="90">Last 90 Days</option>
+          </select>
+        </div>
+      </div>
 
-              <p className="text-sm font-semibold text-blue-600">
-                Transport Department
-              </p>
-            </div>
-
-            <h1 className="mt-2 text-2xl font-bold tracking-tight text-slate-950 sm:text-3xl">
-              Payment Management Dashboard
-            </h1>
-
-            <p className="mt-1 text-sm text-slate-500">
-              Monitor cards, transactions and generated
-              payment files from one place.
-            </p>
-          </div>
-
-          <div className="flex flex-wrap items-center gap-2">
-            <div className="flex rounded-xl border border-slate-200 bg-white p-1 shadow-sm">
-              {(
-                [
-                  ["7days", "7 Days"],
-                  ["30days", "30 Days"],
-                  ["90days", "90 Days"],
-                ] as const
-              ).map(([value, label]) => (
-                <button
-                  key={value}
-                  type="button"
-                  onClick={() =>
-                    setPeriod(value)
-                  }
-                  className={[
-                    "rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors",
-                    period === value
-                      ? "bg-blue-600 text-white shadow-sm"
-                      : "text-slate-500 hover:bg-slate-50 hover:text-slate-800",
-                  ].join(" ")}
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
-
-            <button
-              type="button"
-              onClick={handleRefresh}
-              disabled={refreshing}
-              className="flex h-9 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-600 shadow-sm hover:bg-slate-50 disabled:opacity-50"
-            >
-              <RefreshCw
-                className={[
-                  "h-4 w-4",
-                  refreshing
-                    ? "animate-spin"
-                    : "",
-                ].join(" ")}
-              />
-
-              Refresh
-            </button>
-          </div>
-        </section>
-
-        {/* =====================================================
-            KPI CARDS
-        ====================================================== */}
-
-        <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-          <StatCard
-            title="Total Cards"
-            value={formatNumber(
-              stats.cards.total,
-            )}
-            description="Cards available in system"
-            icon={
-              <CreditCard className="h-5 w-5" />
-            }
-            iconClass="bg-blue-50 text-blue-600"
-            href="/cards"
-          />
-
-          <StatCard
-            title="Total Transactions"
-            value={formatNumber(
-              stats.transactions.total,
-            )}
-            description={`${stats.transactions.pending} pending transactions`}
-            icon={
-              <ReceiptText className="h-5 w-5" />
-            }
-            iconClass="bg-violet-50 text-violet-600"
-            href="/transactions"
-          />
-
-          <StatCard
-            title="Total Amount"
-            value={formatCurrency(
-              stats.transactions.totalAmount,
-            )}
-            description="Transaction amount"
-            icon={
-              <span className="text-lg font-bold">
-                ₹
-              </span>
-            }
-            iconClass="bg-emerald-50 text-emerald-600"
-          />
-
-          <StatCard
-            title="Generated Files"
-            value={formatNumber(
-              stats.files.total,
-            )}
-            description="Payment files generated"
-            icon={
-              <FileSpreadsheet className="h-5 w-5" />
-            }
-            iconClass="bg-amber-50 text-amber-600"
-            href="/files"
-          />
-        </section>
-
-        {/* =====================================================
-            DEPARTMENT SUMMARY
-        ====================================================== */}
-
-        <section className="grid gap-4 md:grid-cols-3">
-          <div className="rounded-2xl border border-blue-100 bg-gradient-to-br from-blue-600 to-blue-700 p-5 text-white shadow-sm">
-            <div className="flex items-start justify-between">
+      {/* KPI Cards */}
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        {/* Total Cards */}
+        <Card>
+          <CardContent className="p-6">
+            <div className="flex items-center justify-between">
               <div>
-                <p className="text-xs font-semibold uppercase tracking-wider text-blue-100">
-                  MMM Department
+                <p className="text-sm font-medium text-muted-foreground">
+                  Total Cards
                 </p>
 
-                <p className="mt-2 text-lg font-bold">
-                  MMM Payment Module
-                </p>
-
-                <p className="mt-1 text-xs text-blue-100">
-                  Manage MMM cards and transactions.
-                </p>
-              </div>
-
-              <CreditCard className="h-6 w-6 text-blue-100" />
-            </div>
-
-            <div className="mt-5 flex gap-2">
-              <a
-                href="/cards"
-                className="rounded-lg bg-white/15 px-3 py-2 text-xs font-semibold hover:bg-white/20"
-              >
-                Cards
-              </a>
-
-              <a
-                href="/transactions"
-                className="rounded-lg bg-white/15 px-3 py-2 text-xs font-semibold hover:bg-white/20"
-              >
-                Transactions
-              </a>
-            </div>
-          </div>
-
-          <div className="rounded-2xl border border-indigo-100 bg-gradient-to-br from-indigo-600 to-indigo-700 p-5 text-white shadow-sm">
-            <div className="flex items-start justify-between">
-              <div>
-                <p className="text-xs font-semibold uppercase tracking-wider text-indigo-100">
-                  SDH Department
-                </p>
-
-                <p className="mt-2 text-lg font-bold">
-                  SDH Payment Module
-                </p>
-
-                <p className="mt-1 text-xs text-indigo-100">
-                  Manage SDH cards and transactions.
-                </p>
-              </div>
-
-              <CreditCard className="h-6 w-6 text-indigo-100" />
-            </div>
-
-            <div className="mt-5 flex gap-2">
-              <a
-                href="/card"
-                className="rounded-lg bg-white/15 px-3 py-2 text-xs font-semibold hover:bg-white/20"
-              >
-                Cards
-              </a>
-
-              <a
-                href="/transaction"
-                className="rounded-lg bg-white/15 px-3 py-2 text-xs font-semibold hover:bg-white/20"
-              >
-                Transactions
-              </a>
-            </div>
-          </div>
-
-          <div className="rounded-2xl border border-emerald-100 bg-gradient-to-br from-emerald-600 to-emerald-700 p-5 text-white shadow-sm">
-            <div className="flex items-start justify-between">
-              <div>
-                <p className="text-xs font-semibold uppercase tracking-wider text-emerald-100">
-                  Success Rate
-                </p>
-
-                <p className="mt-2 text-3xl font-bold">
-                  {successRate.toFixed(1)}%
-                </p>
-
-                <p className="mt-1 text-xs text-emerald-100">
-                  Successful transactions
-                </p>
-              </div>
-
-              <BarChart3 className="h-6 w-6 text-emerald-100" />
-            </div>
-
-            <div className="mt-5 h-2 overflow-hidden rounded-full bg-white/20">
-              <div
-                className="h-full rounded-full bg-white transition-all"
-                style={{
-                  width: `${Math.min(
-                    successRate,
-                    100,
-                  )}%`,
-                }}
-              />
-            </div>
-          </div>
-        </section>
-
-        {/* =====================================================
-            CHART + QUICK ACTIONS
-        ====================================================== */}
-
-        <section className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_360px]">
-          {/* Chart */}
-          <div className="rounded-2xl border border-slate-200 bg-white shadow-sm">
-            <div className="flex flex-col gap-3 border-b border-slate-100 p-5 sm:flex-row sm:items-center sm:justify-between">
-              <div>
-                <h2 className="text-base font-bold text-slate-900">
-                  Transaction Overview
+                <h2 className="mt-2 text-2xl font-bold">
+                  {loading ? "—" : stats?.cards.total ?? 0}
                 </h2>
 
-                <p className="mt-1 text-xs text-slate-500">
-                  Amount and transaction count over time.
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Registered payment cards
                 </p>
               </div>
 
-              <div className="flex items-center gap-4 text-[11px] text-slate-500">
-                <span className="flex items-center gap-1.5">
-                  <span className="h-2.5 w-2.5 rounded-sm bg-blue-600" />
-                  Amount
-                </span>
-
-                <span className="flex items-center gap-1.5">
-                  <span className="h-2.5 w-2.5 rounded-full bg-emerald-500" />
-                  Transactions
-                </span>
+              <div className="flex h-12 w-12 items-center justify-center rounded-full bg-blue-100">
+                <CreditCard className="h-6 w-6 text-blue-600" />
               </div>
             </div>
+          </CardContent>
+        </Card>
 
-            <div className="p-5">
-              {stats.trend.length === 0 ? (
-                <div className="flex h-[280px] items-center justify-center text-sm text-slate-400">
-                  No transaction data available.
-                </div>
-              ) : (
-                <div className="flex h-[280px] items-end gap-2 overflow-x-auto sm:gap-3">
-                  {stats.trend.map(
-                    (item, index) => {
-                      const amount =
-                        Number(item.amount) || 0;
+        {/* Total Transactions */}
+        <Card>
+          <CardContent className="p-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium text-muted-foreground">
+                  Total Transactions
+                </p>
 
-                      const count =
-                        Number(item.count) || 0;
+                <h2 className="mt-2 text-2xl font-bold">
+                  {loading
+                    ? "—"
+                    : stats?.transactions.total ?? 0}
+                </h2>
 
-                      const height =
-                        Math.max(
-                          (amount /
-                            maxAmount) *
-                            190,
-                          amount > 0
-                            ? 8
-                            : 2,
-                        );
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Transactions recorded
+                </p>
+              </div>
 
-                      return (
-                        <div
-                          key={`${item.date}-${index}`}
-                          className="flex min-w-[42px] flex-1 flex-col items-center justify-end gap-2"
-                        >
-                          <div className="group relative flex w-full max-w-[46px] items-end justify-center">
-                            <div
-                              className="w-full rounded-t-lg bg-blue-600 transition-all duration-300 group-hover:bg-blue-700"
-                              style={{
-                                height: `${height}px`,
-                              }}
-                            />
-
-                            <div className="pointer-events-none absolute -top-12 left-1/2 hidden -translate-x-1/2 rounded-lg bg-slate-900 px-2 py-1 text-[10px] text-white shadow-lg group-hover:block">
-                              {formatCurrency(amount)}
-                            </div>
-                          </div>
-
-                          <p className="text-[10px] font-medium text-slate-400">
-                            {new Intl.DateTimeFormat(
-                              "en-IN",
-                              {
-                                day: "2-digit",
-                                month: "short",
-                              },
-                            ).format(
-                              new Date(
-                                item.date,
-                              ),
-                            )}
-                          </p>
-
-                          <p className="text-[10px] font-semibold text-slate-500">
-                            {count}
-                          </p>
-                        </div>
-                      );
-                    },
-                  )}
-                </div>
-              )}
+              <div className="flex h-12 w-12 items-center justify-center rounded-full bg-green-100">
+                <Receipt className="h-6 w-6 text-green-600" />
+              </div>
             </div>
-          </div>
+          </CardContent>
+        </Card>
 
-          {/* Quick Actions */}
-          <div className="rounded-2xl border border-slate-200 bg-white shadow-sm">
-            <div className="border-b border-slate-100 p-5">
-              <h2 className="text-base font-bold text-slate-900">
-                Quick Actions
-              </h2>
+        {/* Total Amount */}
+        <Card>
+          <CardContent className="p-6">
+            <div className="flex items-center justify-between">
+              <div className="min-w-0">
+                <p className="text-sm font-medium text-muted-foreground">
+                  Total Amount
+                </p>
 
-              <p className="mt-1 text-xs text-slate-500">
-                Frequently used payment operations.
-              </p>
-            </div>
-
-            <div className="space-y-2 p-4">
-              <QuickAction
-                href="/transactions"
-                title="Create MMM Transaction"
-                description="Add MMM payments"
-                icon={
-                  <Plus className="h-5 w-5" />
-                }
-              />
-
-              <QuickAction
-                href="/transaction"
-                title="Create SDH Transaction"
-                description="Add SDH payments"
-                icon={
-                  <Plus className="h-5 w-5" />
-                }
-              />
-
-              <QuickAction
-                href="/cards"
-                title="Manage MMM Cards"
-                description="View MMM card master"
-                icon={
-                  <Users className="h-5 w-5" />
-                }
-              />
-
-              <QuickAction
-                href="/card"
-                title="Manage SDH Cards"
-                description="View SDH card master"
-                icon={
-                  <CreditCard className="h-5 w-5" />
-                }
-              />
-
-              <QuickAction
-                href="/files"
-                title="Generated Files"
-                description="Download payment files"
-                icon={
-                  <FileSpreadsheet className="h-5 w-5" />
-                }
-              />
-            </div>
-          </div>
-        </section>
-
-        {/* =====================================================
-            TRANSACTION STATUS + RECENT TRANSACTIONS
-        ====================================================== */}
-
-        <section className="grid gap-5 xl:grid-cols-[360px_minmax(0,1fr)]">
-          {/* Status */}
-          <div className="rounded-2xl border border-slate-200 bg-white shadow-sm">
-            <div className="border-b border-slate-100 p-5">
-              <h2 className="text-base font-bold text-slate-900">
-                Transaction Status
-              </h2>
-
-              <p className="mt-1 text-xs text-slate-500">
-                Current transaction distribution.
-              </p>
-            </div>
-
-            <div className="p-5">
-              <div className="flex items-center gap-6">
-                <div className="relative flex h-32 w-32 shrink-0 items-center justify-center rounded-full bg-slate-100">
-                  <div
-                    className="absolute inset-2 rounded-full bg-white"
-                  />
-
-                  <div className="relative text-center">
-                    <p className="text-xl font-bold text-slate-900">
-                      {formatNumber(
-                        stats.transactions.total,
+                <h2 className="mt-2 truncate text-2xl font-bold">
+                  {loading
+                    ? "—"
+                    : formatCurrency(
+                        stats?.transactions.totalAmount ?? 0
                       )}
-                    </p>
-
-                    <p className="text-[10px] text-slate-400">
-                      Total
-                    </p>
-                  </div>
-                </div>
-
-                <div className="min-w-0 flex-1 space-y-4">
-                  <div>
-                    <div className="flex items-center justify-between">
-                      <span className="flex items-center gap-2 text-xs font-medium text-slate-600">
-                        <span className="h-2.5 w-2.5 rounded-full bg-emerald-500" />
-                        Successful
-                      </span>
-
-                      <span className="text-xs font-bold text-slate-800">
-                        {formatNumber(
-                          stats.transactions.successful,
-                        )}
-                      </span>
-                    </div>
-                  </div>
-
-                  <div>
-                    <div className="flex items-center justify-between">
-                      <span className="flex items-center gap-2 text-xs font-medium text-slate-600">
-                        <span className="h-2.5 w-2.5 rounded-full bg-amber-500" />
-                        Pending
-                      </span>
-
-                      <span className="text-xs font-bold text-slate-800">
-                        {formatNumber(
-                          stats.transactions.pending,
-                        )}
-                      </span>
-                    </div>
-                  </div>
-
-                  <div>
-                    <div className="flex items-center justify-between">
-                      <span className="flex items-center gap-2 text-xs font-medium text-slate-600">
-                        <span className="h-2.5 w-2.5 rounded-full bg-red-500" />
-                        Failed
-                      </span>
-
-                      <span className="text-xs font-bold text-slate-800">
-                        {formatNumber(
-                          stats.transactions.failed,
-                        )}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              <div className="mt-6 rounded-xl bg-slate-50 p-4">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-medium text-slate-500">
-                    Total Amount
-                  </span>
-
-                  <span className="text-sm font-bold text-slate-900">
-                    {formatCurrency(
-                      stats.transactions.totalAmount,
-                    )}
-                  </span>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* Recent Transactions */}
-          <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-            <div className="flex items-center justify-between border-b border-slate-100 p-5">
-              <div>
-                <h2 className="text-base font-bold text-slate-900">
-                  Recent Transactions
                 </h2>
 
-                <p className="mt-1 text-xs text-slate-500">
-                  Latest payment entries.
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Total transaction value
                 </p>
               </div>
 
-              <a
-                href="/transactions"
-                className="text-xs font-semibold text-blue-600 hover:text-blue-700"
-              >
-                View All
-              </a>
+              <div className="ml-3 flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-orange-100">
+                <IndianRupee className="h-6 w-6 text-orange-600" />
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Generated Files */}
+        <Card>
+          <CardContent className="p-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium text-muted-foreground">
+                  Generated Files
+                </p>
+
+                <h2 className="mt-2 text-2xl font-bold">
+                  {loading ? "—" : stats?.files.total ?? 0}
+                </h2>
+
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Transaction files created
+                </p>
+              </div>
+
+              <div className="flex h-12 w-12 items-center justify-center rounded-full bg-purple-100">
+                <FileText className="h-6 w-6 text-purple-600" />
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Transaction Overview */}
+      <Card>
+        <CardHeader>
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <CardTitle>Transaction Overview</CardTitle>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Transaction activity for the selected period
+              </p>
             </div>
 
-            {stats.recentTransactions.length ===
-            0 ? (
-              <div className="flex min-h-[220px] items-center justify-center text-sm text-slate-400">
-                No recent transactions.
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              <TrendingUp className="h-4 w-4" />
+              Transaction Activity
+            </div>
+          </div>
+        </CardHeader>
+
+        <CardContent>
+          <div className="h-[320px] w-full">
+            {loading ? (
+              <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
+                Loading transaction overview...
+              </div>
+            ) : chartData.length === 0 ? (
+              <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
+                No transaction data available
               </div>
             ) : (
-              <>
-                <div className="hidden overflow-x-auto md:block">
-                  <table className="w-full">
-                    <thead>
-                      <tr className="border-b border-slate-100 bg-slate-50/60 text-left text-[10px] font-bold uppercase tracking-wider text-slate-400">
-                        <th className="px-5 py-3">
-                          Card
-                        </th>
+              <ResponsiveContainer width="100%" height="100%">
+                <AreaChart
+                  data={chartData}
+                  margin={{
+                    top: 10,
+                    right: 10,
+                    left: 0,
+                    bottom: 0,
+                  }}
+                >
+                  <CartesianGrid
+                    strokeDasharray="3 3"
+                    vertical={false}
+                  />
 
-                        <th className="px-5 py-3">
-                          Amount
-                        </th>
+                  <XAxis
+                    dataKey="name"
+                    tickLine={false}
+                    axisLine={false}
+                    tick={{ fontSize: 12 }}
+                  />
 
-                        <th className="px-5 py-3">
-                          Status
-                        </th>
+                  <YAxis
+                    tickLine={false}
+                    axisLine={false}
+                    tick={{ fontSize: 12 }}
+                    allowDecimals={false}
+                  />
 
-                        <th className="px-5 py-3">
-                          Date
-                        </th>
-                      </tr>
-                    </thead>
+                  <Tooltip
+                    formatter={(value, name) => [
+                      name === "count"
+                        ? value
+                        : formatCurrency(Number(value)),
+                      name === "count"
+                        ? "Transactions"
+                        : "Amount",
+                    ]}
+                  />
 
-                    <tbody>
-                      {stats.recentTransactions
-                        .slice(0, 8)
-                        .map((transaction) => (
-                          <tr
-                            key={
-                              transaction.id
-                            }
-                            className="border-b border-slate-100 last:border-0 hover:bg-slate-50/50"
-                          >
-                            <td className="px-5 py-4">
-                              <div className="flex items-center gap-3">
-                                <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-50 text-blue-600">
-                                  <CreditCard className="h-4 w-4" />
-                                </div>
-
-                                <span className="text-sm font-semibold text-slate-800">
-                                  {maskCard(
-                                    transaction.cardNumber,
-                                  )}
-                                </span>
-                              </div>
-                            </td>
-
-                            <td className="px-5 py-4 text-sm font-bold text-slate-900">
-                              {formatCurrency(
-                                transaction.amount,
-                              )}
-                            </td>
-
-                            <td className="px-5 py-4">
-                              <StatusBadge
-                                status={
-                                  transaction.status
-                                }
-                              />
-                            </td>
-
-                            <td className="px-5 py-4 text-xs text-slate-500">
-                              {formatDate(
-                                transaction.createdAt,
-                              )}
-                            </td>
-                          </tr>
-                        ))}
-                    </tbody>
-                  </table>
-                </div>
-
-                {/* Mobile */}
-                <div className="divide-y divide-slate-100 md:hidden">
-                  {stats.recentTransactions
-                    .slice(0, 6)
-                    .map((transaction) => (
-                      <div
-                        key={
-                          transaction.id
-                        }
-                        className="flex items-center justify-between gap-3 p-4"
-                      >
-                        <div className="flex min-w-0 items-center gap-3">
-                          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-blue-50 text-blue-600">
-                            <CreditCard className="h-4 w-4" />
-                          </div>
-
-                          <div className="min-w-0">
-                            <p className="text-sm font-semibold text-slate-800">
-                              {maskCard(
-                                transaction.cardNumber,
-                              )}
-                            </p>
-
-                            <p className="mt-0.5 text-[10px] text-slate-400">
-                              {formatDate(
-                                transaction.createdAt,
-                              )}
-                            </p>
-                          </div>
-                        </div>
-
-                        <div className="text-right">
-                          <p className="text-sm font-bold text-slate-900">
-                            {formatCurrency(
-                              transaction.amount,
-                            )}
-                          </p>
-
-                          <div className="mt-1">
-                            <StatusBadge
-                              status={
-                                transaction.status
-                              }
-                            />
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-                </div>
-              </>
+                  <Area
+                    type="monotone"
+                    dataKey="count"
+                    strokeWidth={2}
+                    fillOpacity={0.15}
+                  />
+                </AreaChart>
+              </ResponsiveContainer>
             )}
           </div>
-        </section>
+        </CardContent>
+      </Card>
 
-        {/* =====================================================
-            FOOTER QUICK LINKS
-        ====================================================== */}
+      {/* Quick Actions */}
+      <div className="grid gap-4 md:grid-cols-2">
+        {/* MMM */}
+        <Card>
+          <CardHeader>
+            <CardTitle>MMM Card Management</CardTitle>
+            <p className="text-sm text-muted-foreground">
+              Manage MMM cards and create MMM transactions
+            </p>
+          </CardHeader>
 
-        <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          <a
-            href="/cards"
-            className="flex items-center gap-3 rounded-xl border border-slate-200 bg-white p-4 text-sm font-semibold text-slate-700 shadow-sm hover:border-blue-200 hover:text-blue-700"
-          >
-            <CreditCard className="h-5 w-5 text-blue-600" />
-            MMM Card Management
-          </a>
+          <CardContent>
+            <div className="flex flex-col gap-3 sm:flex-row">
+              <Button asChild className="flex-1">
+                <Link href="/cards">
+                  <CreditCard className="mr-2 h-4 w-4" />
+                  Manage Cards
+                </Link>
+              </Button>
 
-          <a
-            href="/card"
-            className="flex items-center gap-3 rounded-xl border border-slate-200 bg-white p-4 text-sm font-semibold text-slate-700 shadow-sm hover:border-blue-200 hover:text-blue-700"
-          >
-            <CreditCard className="h-5 w-5 text-indigo-600" />
-            SDH Card Management
-          </a>
+              <Button
+                asChild
+                variant="outline"
+                className="flex-1"
+              >
+                <Link href="/transactions">
+                  <Plus className="mr-2 h-4 w-4" />
+                  New Transaction
+                </Link>
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
 
-          <a
-            href="/transaction"
-            className="flex items-center gap-3 rounded-xl border border-slate-200 bg-white p-4 text-sm font-semibold text-slate-700 shadow-sm hover:border-blue-200 hover:text-blue-700"
-          >
-            <Plus className="h-5 w-5 text-emerald-600" />
-            New SDH Transaction
-          </a>
+        {/* SDH */}
+        <Card>
+          <CardHeader>
+            <CardTitle>SDH Card Management</CardTitle>
+            <p className="text-sm text-muted-foreground">
+              Manage SDH cards and create SDH transactions
+            </p>
+          </CardHeader>
 
-          <a
-            href="/files"
-            className="flex items-center gap-3 rounded-xl border border-slate-200 bg-white p-4 text-sm font-semibold text-slate-700 shadow-sm hover:border-blue-200 hover:text-blue-700"
-          >
-            <Upload className="h-5 w-5 text-amber-600" />
-            View Generated Files
-          </a>
-        </section>
+          <CardContent>
+            <div className="flex flex-col gap-3 sm:flex-row">
+              <Button asChild className="flex-1">
+                <Link href="/card">
+                  <CreditCard className="mr-2 h-4 w-4" />
+                  Manage Cards
+                </Link>
+              </Button>
+
+              <Button
+                asChild
+                variant="outline"
+                className="flex-1"
+              >
+                <Link href="/transaction">
+                  <Plus className="mr-2 h-4 w-4" />
+                  New Transaction
+                </Link>
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
       </div>
-    </main>
+
+      {/* Recent Transactions */}
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <div>
+              <CardTitle>Recent Transactions</CardTitle>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Latest transactions recorded in the system
+              </p>
+            </div>
+
+            <Button asChild variant="ghost" size="sm">
+              <Link href="/transactions">
+                View All
+                <ArrowRight className="ml-2 h-4 w-4" />
+              </Link>
+            </Button>
+          </div>
+        </CardHeader>
+
+        <CardContent>
+          {loading ? (
+            <div className="py-10 text-center text-sm text-muted-foreground">
+              Loading transactions...
+            </div>
+          ) : !stats?.recentTransactions?.length ? (
+            <div className="py-10 text-center text-sm text-muted-foreground">
+              No transactions found
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[600px]">
+                <thead>
+                  <tr className="border-b text-left">
+                    <th className="pb-3 text-sm font-medium text-muted-foreground">
+                      Card Number
+                    </th>
+
+                    <th className="pb-3 text-sm font-medium text-muted-foreground">
+                      Amount
+                    </th>
+
+                    <th className="pb-3 text-right text-sm font-medium text-muted-foreground">
+                      Date
+                    </th>
+                  </tr>
+                </thead>
+
+                <tbody>
+                  {stats.recentTransactions.map(
+                    (transaction) => (
+                      <tr
+                        key={transaction._id}
+                        className="border-b last:border-0"
+                      >
+                        <td className="py-4 font-mono text-sm">
+                          {transaction.cardNumber}
+                        </td>
+
+                        <td className="py-4 text-sm font-medium">
+                          {formatCurrency(transaction.amount)}
+                        </td>
+
+                        <td className="py-4 text-right text-sm text-muted-foreground">
+                          {formatDate(transaction.createdAt)}
+                        </td>
+                      </tr>
+                    )
+                  )}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    </div>
   );
 }
