@@ -21,7 +21,6 @@ import {
   YAxis,
 } from "recharts";
 
-import { Button } from "@/components/ui/button";
 import {
   Card,
   CardContent,
@@ -112,37 +111,40 @@ export default function DashboardPage() {
 
   return (
     <div className="space-y-6">
-      {/* Header */}
+      {/* =========================================================
+          HEADER
+      ========================================================= */}
       <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
         <div>
           <h1 className="text-2xl font-bold tracking-tight">
             Dashboard
           </h1>
+
           <p className="text-muted-foreground">
             Overview of your Transport Department payment management
           </p>
         </div>
 
-        <div className="flex items-center gap-2">
-          <select
-            value={period}
-            onChange={(e) => setPeriod(e.target.value)}
-            className="h-9 rounded-md border bg-background px-3 text-sm outline-none focus:ring-2 focus:ring-ring"
-          >
-            <option value="7">Last 7 Days</option>
-            <option value="30">Last 30 Days</option>
-            <option value="90">Last 90 Days</option>
-          </select>
-        </div>
+        <select
+          value={period}
+          onChange={(e) => setPeriod(e.target.value)}
+          className="h-9 w-fit rounded-md border bg-background px-3 text-sm outline-none focus:ring-2 focus:ring-ring"
+        >
+          <option value="7">Last 7 Days</option>
+          <option value="30">Last 30 Days</option>
+          <option value="90">Last 90 Days</option>
+        </select>
       </div>
 
-      {/* KPI Cards */}
+      {/* =========================================================
+          KPI CARDS
+      ========================================================= */}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         {/* Total Cards */}
         <Card>
           <CardContent className="p-6">
             <div className="flex items-center justify-between">
-              <div>
+              <div className="min-w-0">
                 <p className="text-sm font-medium text-muted-foreground">
                   Total Cards
                 </p>
@@ -156,7 +158,7 @@ export default function DashboardPage() {
                 </p>
               </div>
 
-              <div className="flex h-12 w-12 items-center justify-center rounded-full bg-blue-100">
+              <div className="ml-3 flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-blue-100">
                 <CreditCard className="h-6 w-6 text-blue-600" />
               </div>
             </div>
@@ -167,7 +169,7 @@ export default function DashboardPage() {
         <Card>
           <CardContent className="p-6">
             <div className="flex items-center justify-between">
-              <div>
+              <div className="min-w-0">
                 <p className="text-sm font-medium text-muted-foreground">
                   Total Transactions
                 </p>
@@ -183,7 +185,7 @@ export default function DashboardPage() {
                 </p>
               </div>
 
-              <div className="flex h-12 w-12 items-center justify-center rounded-full bg-green-100">
+              <div className="ml-3 flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-green-100">
                 <Receipt className="h-6 w-6 text-green-600" />
               </div>
             </div>
@@ -223,7 +225,7 @@ export default function DashboardPage() {
         <Card>
           <CardContent className="p-6">
             <div className="flex items-center justify-between">
-              <div>
+              <div className="min-w-0">
                 <p className="text-sm font-medium text-muted-foreground">
                   Generated Files
                 </p>
@@ -237,7 +239,7 @@ export default function DashboardPage() {
                 </p>
               </div>
 
-              <div className="flex h-12 w-12 items-center justify-center rounded-full bg-purple-100">
+              <div className="ml-3 flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-purple-100">
                 <FileText className="h-6 w-6 text-purple-600" />
               </div>
             </div>
@@ -245,12 +247,15 @@ export default function DashboardPage() {
         </Card>
       </div>
 
-      {/* Transaction Overview */}
+      {/* =========================================================
+          TRANSACTION OVERVIEW
+      ========================================================= */}
       <Card>
         <CardHeader>
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <CardTitle>Transaction Overview</CardTitle>
+
               <p className="mt-1 text-sm text-muted-foreground">
                 Transaction activity for the selected period
               </p>
@@ -327,12 +332,15 @@ export default function DashboardPage() {
         </CardContent>
       </Card>
 
-      {/* Quick Actions */}
+      {/* =========================================================
+          QUICK ACTIONS
+      ========================================================= */}
       <div className="grid gap-4 md:grid-cols-2">
         {/* MMM */}
         <Card>
           <CardHeader>
             <CardTitle>MMM Card Management</CardTitle>
+
             <p className="text-sm text-muted-foreground">
               Manage MMM cards and create MMM transactions
             </p>
@@ -340,23 +348,21 @@ export default function DashboardPage() {
 
           <CardContent>
             <div className="flex flex-col gap-3 sm:flex-row">
-              <Button asChild className="flex-1">
-                <Link href="/cards">
-                  <CreditCard className="mr-2 h-4 w-4" />
-                  Manage Cards
-                </Link>
-              </Button>
-
-              <Button
-                asChild
-                variant="outline"
-                className="flex-1"
+              <Link
+                href="/cards"
+                className="inline-flex h-10 flex-1 items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
               >
-                <Link href="/transactions">
-                  <Plus className="mr-2 h-4 w-4" />
-                  New Transaction
-                </Link>
-              </Button>
+                <CreditCard className="mr-2 h-4 w-4" />
+                Manage Cards
+              </Link>
+
+              <Link
+                href="/transactions"
+                className="inline-flex h-10 flex-1 items-center justify-center rounded-md border border-input bg-background px-4 py-2 text-sm font-medium transition-colors hover:bg-accent hover:text-accent-foreground"
+              >
+                <Plus className="mr-2 h-4 w-4" />
+                New Transaction
+              </Link>
             </div>
           </CardContent>
         </Card>
@@ -365,6 +371,7 @@ export default function DashboardPage() {
         <Card>
           <CardHeader>
             <CardTitle>SDH Card Management</CardTitle>
+
             <p className="text-sm text-muted-foreground">
               Manage SDH cards and create SDH transactions
             </p>
@@ -372,45 +379,47 @@ export default function DashboardPage() {
 
           <CardContent>
             <div className="flex flex-col gap-3 sm:flex-row">
-              <Button asChild className="flex-1">
-                <Link href="/card">
-                  <CreditCard className="mr-2 h-4 w-4" />
-                  Manage Cards
-                </Link>
-              </Button>
-
-              <Button
-                asChild
-                variant="outline"
-                className="flex-1"
+              <Link
+                href="/card"
+                className="inline-flex h-10 flex-1 items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
               >
-                <Link href="/transaction">
-                  <Plus className="mr-2 h-4 w-4" />
-                  New Transaction
-                </Link>
-              </Button>
+                <CreditCard className="mr-2 h-4 w-4" />
+                Manage Cards
+              </Link>
+
+              <Link
+                href="/transaction"
+                className="inline-flex h-10 flex-1 items-center justify-center rounded-md border border-input bg-background px-4 py-2 text-sm font-medium transition-colors hover:bg-accent hover:text-accent-foreground"
+              >
+                <Plus className="mr-2 h-4 w-4" />
+                New Transaction
+              </Link>
             </div>
           </CardContent>
         </Card>
       </div>
 
-      {/* Recent Transactions */}
+      {/* =========================================================
+          RECENT TRANSACTIONS
+      ========================================================= */}
       <Card>
         <CardHeader>
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between gap-4">
             <div>
               <CardTitle>Recent Transactions</CardTitle>
+
               <p className="mt-1 text-sm text-muted-foreground">
                 Latest transactions recorded in the system
               </p>
             </div>
 
-            <Button asChild variant="ghost" size="sm">
-              <Link href="/transactions">
-                View All
-                <ArrowRight className="ml-2 h-4 w-4" />
-              </Link>
-            </Button>
+            <Link
+              href="/transactions"
+              className="inline-flex h-9 shrink-0 items-center justify-center rounded-md px-3 text-sm font-medium transition-colors hover:bg-accent hover:text-accent-foreground"
+            >
+              View All
+              <ArrowRight className="ml-2 h-4 w-4" />
+            </Link>
           </div>
         </CardHeader>
 
