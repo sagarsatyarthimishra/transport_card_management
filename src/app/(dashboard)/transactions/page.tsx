@@ -188,7 +188,7 @@ export default function TransactionsPage() {
         ) {
           throw new Error(
             result.message ||
-              "Unable to load transaction file.",
+            "Unable to load transaction file.",
           );
         }
 
@@ -207,7 +207,7 @@ export default function TransactionsPage() {
 
         setFileName(
           result.data.file?.fileName ||
-            "",
+          "",
         );
 
         const loaded =
@@ -321,7 +321,7 @@ export default function TransactionsPage() {
             ) {
               throw new Error(
                 result.message ||
-                  "Unable to search cards.",
+                "Unable to search cards.",
               );
             }
 
@@ -344,9 +344,9 @@ export default function TransactionsPage() {
           } catch (searchError) {
             if (
               searchError instanceof
-                DOMException &&
+              DOMException &&
               searchError.name ===
-                "AbortError"
+              "AbortError"
             ) {
               return;
             }
@@ -456,7 +456,7 @@ export default function TransactionsPage() {
   ) {
     if (
       event.key ===
-        "ArrowDown"
+      "ArrowDown"
     ) {
       event.preventDefault();
 
@@ -484,7 +484,7 @@ export default function TransactionsPage() {
 
     if (
       event.key ===
-        "ArrowUp"
+      "ArrowUp"
     ) {
       event.preventDefault();
 
@@ -513,7 +513,7 @@ export default function TransactionsPage() {
 
       const index =
         highlightedCardIndex >=
-        0
+          0
           ? highlightedCardIndex
           : 0;
 
@@ -598,7 +598,7 @@ export default function TransactionsPage() {
       Math.round(
         (numericAmount +
           Number.EPSILON) *
-          100,
+        100,
       ) / 100;
 
     /*
@@ -611,16 +611,16 @@ export default function TransactionsPage() {
           current.map(
             (transaction) =>
               transaction.id ===
-              editingId
+                editingId
                 ? {
-                    ...transaction,
-                    cardId:
-                      selectedCard._id,
-                    cardNumber:
-                      selectedCard.cardNumber,
-                    amount:
-                      roundedAmount,
-                  }
+                  ...transaction,
+                  cardId:
+                    selectedCard._id,
+                  cardNumber:
+                    selectedCard.cardNumber,
+                  amount:
+                    roundedAmount,
+                }
                 : transaction,
           ),
       );
@@ -844,9 +844,7 @@ export default function TransactionsPage() {
    */
 
   async function updateExistingFile(
-    format:
-      | "xlsx"
-      | "csv",
+    format: "xlsx" | "csv",
     downloadAfterSave: boolean,
   ) {
     if (!fileId) {
@@ -861,37 +859,31 @@ export default function TransactionsPage() {
       return false;
     }
 
-    const response =
-      await fetch(
-        `/api/transactions/files/${fileId}`,
-        {
-          method: "PUT",
+    const response = await fetch(
+      `/api/transactions/files/${fileId}`,
+      {
+        method: "PUT",
 
-          headers: {
-            "Content-Type":
-              "application/json",
-          },
-
-          body: JSON.stringify({
-            transactions:
-              drafts.map(
-                (
-                  transaction,
-                ) => ({
-                  cardId:
-                    transaction.cardId,
-                  amount:
-                    transaction.amount,
-                }),
-              ),
-
-            format,
-          }),
+        headers: {
+          "Content-Type": "application/json",
         },
-      );
 
-    const result =
-      await response.json();
+        body: JSON.stringify({
+          department: "MMM",
+
+          transactions: drafts.map(
+            (transaction) => ({
+              cardId: transaction.cardId,
+              amount: transaction.amount,
+            }),
+          ),
+
+          format,
+        }),
+      },
+    );
+
+    const result = await response.json();
 
     if (
       !response.ok ||
@@ -899,15 +891,14 @@ export default function TransactionsPage() {
     ) {
       throw new Error(
         result.message ||
-          "Unable to update file.",
+        "Unable to update MMM file.",
       );
     }
 
     /*
-     * Download updated file
-     * when Generate is clicked.
+     * Generate button:
+     * download updated same file.
      */
-
     if (downloadAfterSave) {
       const downloadResponse =
         await fetch(
@@ -917,9 +908,7 @@ export default function TransactionsPage() {
           },
         );
 
-      if (
-        !downloadResponse.ok
-      ) {
+      if (!downloadResponse.ok) {
         throw new Error(
           "File updated, but download failed.",
         );
@@ -942,24 +931,17 @@ export default function TransactionsPage() {
         "SALARY_MMM11473_20210202";
 
       const blobUrl =
-        window.URL.createObjectURL(
-          blob,
-        );
+        window.URL.createObjectURL(blob);
 
       const anchor =
-        document.createElement(
-          "a",
-        );
+        document.createElement("a");
 
-      anchor.href =
-        blobUrl;
+      anchor.href = blobUrl;
 
       anchor.download =
         `${baseName}.${format}`;
 
-      document.body.appendChild(
-        anchor,
-      );
+      document.body.appendChild(anchor);
 
       anchor.click();
 
@@ -972,7 +954,7 @@ export default function TransactionsPage() {
 
     setFileName(
       result.data?.fileName ||
-        fileName,
+      fileName,
     );
 
     return true;
@@ -1073,7 +1055,7 @@ export default function TransactionsPage() {
           message =
             result.message ||
             message;
-        } catch {}
+        } catch { }
 
         throw new Error(
           message,
@@ -1252,7 +1234,7 @@ export default function TransactionsPage() {
       ) {
         throw new Error(
           result.message ||
-            "Unable to save transactions.",
+          "Unable to save transactions.",
         );
       }
 
@@ -1313,7 +1295,7 @@ export default function TransactionsPage() {
           <p className="mt-1 text-sm text-slate-500">
             {isEditMode
               ? fileName ||
-                "Edit existing MMM transaction file."
+              "Edit existing MMM transaction file."
               : "Add card numbers and amounts, review the transactions, and generate your payment file."}
           </p>
         </div>
@@ -1429,7 +1411,7 @@ export default function TransactionsPage() {
                   cardSearch.trim() &&
                   (
                     cards.length >
-                      0 ||
+                    0 ||
                     loadingCards
                   ) && (
                     <div className="absolute left-0 right-0 top-[76px] z-30 overflow-hidden rounded-lg border border-slate-200 bg-white shadow-xl">
@@ -1469,19 +1451,17 @@ export default function TransactionsPage() {
                                       card,
                                     );
                                   }}
-                                  className={`flex w-full items-center gap-3 border-b border-slate-100 px-4 py-3 text-left last:border-0 ${
-                                    isHighlighted
+                                  className={`flex w-full items-center gap-3 border-b border-slate-100 px-4 py-3 text-left last:border-0 ${isHighlighted
                                       ? "bg-blue-50"
                                       : "hover:bg-slate-50"
-                                  }`}
+                                    }`}
                                 >
 
                                   <CreditCard
-                                    className={`h-4 w-4 shrink-0 ${
-                                      isHighlighted
+                                    className={`h-4 w-4 shrink-0 ${isHighlighted
                                         ? "text-blue-600"
                                         : "text-slate-400"
-                                    }`}
+                                      }`}
                                   />
 
                                   {/* FULL CARD NUMBER */}
@@ -1718,7 +1698,7 @@ export default function TransactionsPage() {
 
           {/* Empty */}
           {drafts.length ===
-          0 ? (
+            0 ? (
             <div className="flex flex-col items-center justify-center px-5 py-16 text-center">
 
               <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-slate-100 text-slate-400">
@@ -1891,7 +1871,7 @@ export default function TransactionsPage() {
                                             current,
                                           ) =>
                                             current ===
-                                            transaction.id
+                                              transaction.id
                                               ? null
                                               : transaction.id,
                                         )
@@ -1904,35 +1884,35 @@ export default function TransactionsPage() {
 
                                     {openMenuId ===
                                       transaction.id && (
-                                      <div className="absolute right-0 top-11 z-20 w-36 overflow-hidden rounded-lg border border-slate-200 bg-white py-1 shadow-lg">
+                                        <div className="absolute right-0 top-11 z-20 w-36 overflow-hidden rounded-lg border border-slate-200 bg-white py-1 shadow-lg">
 
-                                        <button
-                                          type="button"
-                                          onClick={() =>
-                                            handleEditTransaction(
-                                              transaction,
-                                            )
-                                          }
-                                          className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-50"
-                                        >
-                                          Edit
-                                        </button>
+                                          <button
+                                            type="button"
+                                            onClick={() =>
+                                              handleEditTransaction(
+                                                transaction,
+                                              )
+                                            }
+                                            className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-50"
+                                          >
+                                            Edit
+                                          </button>
 
-                                        <button
-                                          type="button"
-                                          onClick={() =>
-                                            handleDeleteTransaction(
-                                              transaction.id,
-                                            )
-                                          }
-                                          className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-red-600 hover:bg-red-50"
-                                        >
-                                          <Trash2 className="h-4 w-4" />
-                                          Delete
-                                        </button>
+                                          <button
+                                            type="button"
+                                            onClick={() =>
+                                              handleDeleteTransaction(
+                                                transaction.id,
+                                              )
+                                            }
+                                            className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-red-600 hover:bg-red-50"
+                                          >
+                                            <Trash2 className="h-4 w-4" />
+                                            Delete
+                                          </button>
 
-                                      </div>
-                                    )}
+                                        </div>
+                                      )}
 
                                   </div>
                                 )}
