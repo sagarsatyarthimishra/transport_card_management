@@ -1,17 +1,9 @@
 "use client";
 
 import {
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
-
-import {
   CheckCircle2,
   CreditCard,
-  Download,
-  FileSpreadsheet,
+  Ellipsis,
   Loader2,
   Plus,
   Search,
@@ -19,108 +11,55 @@ import {
   X,
 } from "lucide-react";
 
-type CardItem = {
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
+
+interface CardItem {
   _id: string;
   cardNumber: string;
-};
+}
 
-type DraftTransaction = {
+interface DraftTransaction {
   id: string;
   cardId: string;
   cardNumber: string;
   amount: number;
-};
+}
 
-type EditFileResponse = {
+interface EditFileResponse {
   success: boolean;
   message?: string;
   data?: {
+    department?: string;
     file?: {
-      id: string;
+      _id: string;
       fileName: string;
-      fileSize?: number | null;
       transactionCount: number;
       totalAmount: number;
-      contentType: string;
-      createdAt: string;
-      updatedAt: string;
     };
-
-    department: "MMM" | "SDH";
-
-    transactions: Array<{
+    transactions?: {
       id: string;
       cardId: string;
       cardNumber: string;
       amount: number;
-      sequence?: number;
-      status?: string;
-    }>;
+    }[];
   };
-};
-
-// ============================================================
-// Helpers
-// ============================================================
+}
 
 function normalizeCardNumber(
   value: string,
-) {
+): string {
   return value
     .replace(/\s+/g, "")
-    .trim()
-    .toLowerCase();
-}
-
-function formatCurrency(
-  value: number,
-) {
-  return new Intl.NumberFormat(
-    "en-IN",
-    {
-      style: "currency",
-      currency: "INR",
-      maximumFractionDigits: 2,
-    },
-  ).format(value);
-}
-
-function formatCardNumber(
-  value: string,
-) {
-  const digits =
-    value.replace(/\s+/g, "");
-
-  return digits
-    .replace(
-      /(.{4})/g,
-      "$1 ",
-    )
     .trim();
 }
 
-function maskCardNumber(
-  value: string,
-) {
-  const normalized =
-    value.replace(/\s+/g, "");
-
-  if (
-    normalized.length <= 4
-  ) {
-    return normalized;
-  }
-
-  return `•••• ${normalized.slice(
-    -4,
-  )}`;
-}
-
 function getFileIdFromUrl() {
-  if (
-    typeof window ===
-    "undefined"
-  ) {
+  if (typeof window === "undefined") {
     return null;
   }
 
@@ -132,150 +71,83 @@ function getFileIdFromUrl() {
   return params.get("fileId");
 }
 
-// ============================================================
-// Page
-// ============================================================
-
 export default function SDHTransactionPage() {
-  // ==========================================================
-  // Existing file
-  // ==========================================================
+  /*
+   * ============================================================
+   * STATE
+   * ============================================================
+   */
 
   const [fileId, setFileId] =
-    useState<string | null>(
-      null,
-    );
+    useState<string | null>(null);
 
   const [fileName, setFileName] =
     useState("");
 
-  const [loadingFile, setLoadingFile] =
-    useState(false);
+  const [cardSearch, setCardSearch] =
+    useState("");
 
-  // ==========================================================
-  // Card Search
-  // ==========================================================
+  const [cards, setCards] =
+    useState<CardItem[]>([]);
 
-  const [
-    cardSearch,
-    setCardSearch,
-  ] = useState("");
-
-  const [
-    cards,
-    setCards,
-  ] = useState<CardItem[]>([]);
-
-  const [
-    selectedCard,
-    setSelectedCard,
-  ] = useState<CardItem | null>(
-    null,
-  );
+  const [selectedCard, setSelectedCard] =
+    useState<CardItem | null>(null);
 
   const [
     highlightedCardIndex,
     setHighlightedCardIndex,
   ] = useState(-1);
 
-  // ==========================================================
-  // Amount
-  // ==========================================================
+  const [amount, setAmount] =
+    useState("");
 
-  const [
-    amount,
-    setAmount,
-  ] = useState("");
+  const [drafts, setDrafts] =
+    useState<DraftTransaction[]>([]);
 
-  // ==========================================================
-  // Draft Transactions
-  // ==========================================================
+  const [previewSearch, setPreviewSearch] =
+    useState("");
 
-  const [
-    drafts,
-    setDrafts,
-  ] = useState<
-    DraftTransaction[]
-  >([]);
+  const [loadingCards, setLoadingCards] =
+    useState(false);
 
-  // ==========================================================
-  // Preview Search
-  // ==========================================================
+  const [loadingFile, setLoadingFile] =
+    useState(false);
 
-  const [
-    previewSearch,
-    setPreviewSearch,
-  ] = useState("");
+  const [saving, setSaving] =
+    useState(false);
 
-  // ==========================================================
-  // Loading States
-  // ==========================================================
+  const [generatingFile, setGeneratingFile] =
+    useState(false);
 
-  const [
-    loadingCards,
-    setLoadingCards,
-  ] = useState(false);
+  const [editingId, setEditingId] =
+    useState<string | null>(null);
 
-  const [
-    saving,
-    setSaving,
-  ] = useState(false);
+  const [error, setError] =
+    useState("");
 
-  const [
-    generatingFile,
-    setGeneratingFile,
-  ] = useState(false);
+  const [success, setSuccess] =
+    useState("");
 
-  // ==========================================================
-  // Transaction Editing
-  // ==========================================================
-
-  const [
-    editingId,
-    setEditingId,
-  ] = useState<string | null>(
-    null,
-  );
-
-  // ==========================================================
-  // Messages
-  // ==========================================================
-
-  const [
-    error,
-    setError,
-  ] = useState("");
-
-  const [
-    success,
-    setSuccess,
-  ] = useState("");
-
-  // ==========================================================
-  // Refs
-  // ==========================================================
+  const [openMenuId, setOpenMenuId] =
+    useState<string | null>(null);
 
   const cardSearchInputRef =
-    useRef<HTMLInputElement>(
-      null,
-    );
+    useRef<HTMLInputElement>(null);
 
   const amountInputRef =
-    useRef<HTMLInputElement>(
-      null,
-    );
+    useRef<HTMLInputElement>(null);
 
   const previewSearchInputRef =
-    useRef<HTMLInputElement>(
-      null,
-    );
+    useRef<HTMLInputElement>(null);
 
   const isEditMode =
     Boolean(fileId);
 
-  // ============================================================
-  // GET FILE ID
-  // ============================================================
+  /*
+   * ============================================================
+   * GET FILE ID
+   * ============================================================
+   */
 
   useEffect(() => {
     setFileId(
@@ -283,13 +155,11 @@ export default function SDHTransactionPage() {
     );
   }, []);
 
-  // ============================================================
-  // LOAD EXISTING SDH FILE
-  //
-  // This runs ONLY when Files -> Edit is used.
-  //
-  // Normal /transaction page remains the same.
-  // ============================================================
+  /*
+   * ============================================================
+   * LOAD EXISTING SDH FILE
+   * ============================================================
+   */
 
   useEffect(() => {
     if (!fileId) {
@@ -308,7 +178,6 @@ export default function SDHTransactionPage() {
           await fetch(
             `/api/transactions/files/${fileId}?mode=edit`,
             {
-              method: "GET",
               cache: "no-store",
             },
           );
@@ -326,11 +195,6 @@ export default function SDHTransactionPage() {
           );
         }
 
-        // ------------------------------------------------------
-        // IMPORTANT:
-        // SDH page must accept SDH file only.
-        // ------------------------------------------------------
-
         if (
           result.data?.department !==
           "SDH"
@@ -345,21 +209,19 @@ export default function SDHTransactionPage() {
         }
 
         setFileName(
-          result.data.file
-            ?.fileName || "",
+          result.data.file?.fileName ||
+            "",
         );
 
         const loaded =
-          result.data
-            .transactions || [];
+          result.data.transactions ||
+          [];
 
         /*
-         * Backend returns:
-         *
+         * Backend:
          * oldest -> newest
          *
-         * Preview requires:
-         *
+         * UI:
          * newest -> oldest
          */
 
@@ -372,13 +234,10 @@ export default function SDHTransactionPage() {
               ) => ({
                 id:
                   transaction.id,
-
                 cardId:
                   transaction.cardId,
-
                 cardNumber:
                   transaction.cardNumber,
-
                 amount:
                   Number(
                     transaction.amount,
@@ -386,9 +245,7 @@ export default function SDHTransactionPage() {
               }),
             ),
         );
-      } catch (
-        loadError
-      ) {
+      } catch (loadError) {
         console.error(
           "Load SDH file error:",
           loadError,
@@ -404,27 +261,25 @@ export default function SDHTransactionPage() {
         }
       } finally {
         if (!cancelled) {
-          setLoadingFile(
-            false,
-          );
+          setLoadingFile(false);
         }
       }
     }
 
-    void loadExistingFile();
+    loadExistingFile();
 
     return () => {
       cancelled = true;
     };
   }, [fileId]);
 
-  // ============================================================
-  // SDH CARD SEARCH
-  //
-  // IMPORTANT:
-  // SDH page uses /api/sdh/cards.
-  // MMM cards are never searched here.
-  // ============================================================
+  /*
+   * ============================================================
+   * SDH CARD SEARCH
+   *
+   * 500ms debounce
+   * ============================================================
+   */
 
   useEffect(() => {
     const query =
@@ -435,9 +290,8 @@ export default function SDHTransactionPage() {
       selectedCard
     ) {
       setCards([]);
-      setHighlightedCardIndex(
-        -1,
-      );
+      setHighlightedCardIndex(-1);
+      setLoadingCards(false);
 
       return;
     }
@@ -449,10 +303,7 @@ export default function SDHTransactionPage() {
       setTimeout(
         async () => {
           try {
-            setLoadingCards(
-              true,
-            );
-
+            setLoadingCards(true);
             setError("");
 
             const response =
@@ -461,6 +312,7 @@ export default function SDHTransactionPage() {
                   query,
                 )}&page=1&limit=20`,
                 {
+                  cache: "no-store",
                   signal:
                     controller.signal,
                 },
@@ -469,7 +321,10 @@ export default function SDHTransactionPage() {
             const result =
               await response.json();
 
-            if (!response.ok) {
+            if (
+              !response.ok ||
+              !result.success
+            ) {
               throw new Error(
                 result.message ||
                   "Unable to search SDH cards.",
@@ -493,9 +348,7 @@ export default function SDHTransactionPage() {
                 ? 0
                 : -1,
             );
-          } catch (
-            searchError
-          ) {
+          } catch (searchError) {
             if (
               searchError instanceof
                 DOMException &&
@@ -510,16 +363,19 @@ export default function SDHTransactionPage() {
               searchError,
             );
 
+            setCards([]);
+            setHighlightedCardIndex(
+              -1,
+            );
+
             setError(
               searchError instanceof
                 Error
                 ? searchError.message
-                : "Unable to search cards.",
+                : "Unable to search SDH cards.",
             );
           } finally {
-            setLoadingCards(
-              false,
-            );
+            setLoadingCards(false);
           }
         },
         500,
@@ -534,114 +390,222 @@ export default function SDHTransactionPage() {
     selectedCard,
   ]);
 
-  // ============================================================
-  // SELECT CARD
-  // ============================================================
+  /*
+   * ============================================================
+   * SELECT CARD
+   * ============================================================
+   */
 
   function selectCard(
     card: CardItem,
   ) {
-    setSelectedCard(
-      card,
-    );
+    setSelectedCard(card);
+
+    /*
+     * IMPORTANT:
+     * Full card number stays visible.
+     */
 
     setCardSearch(
-      formatCardNumber(
-        card.cardNumber,
-      ),
+      card.cardNumber,
     );
 
     setCards([]);
-
-    setHighlightedCardIndex(
-      -1,
-    );
-
+    setHighlightedCardIndex(-1);
     setError("");
 
     requestAnimationFrame(
       () => {
         amountInputRef.current?.focus();
+        amountInputRef.current?.select();
       },
     );
   }
 
-  // ============================================================
-  // CARD KEYBOARD
-  // ============================================================
+  /*
+   * ============================================================
+   * CARD INPUT
+   * ============================================================
+   */
+
+  function handleCardInputChange(
+    value: string,
+  ) {
+    setCardSearch(value);
+
+    setHighlightedCardIndex(
+      0,
+    );
+
+    const normalized =
+      normalizeCardNumber(
+        value,
+      );
+
+    const exactMatch =
+      cards.find(
+        (card) =>
+          normalizeCardNumber(
+            card.cardNumber,
+          ) === normalized,
+      );
+
+    if (!exactMatch) {
+      setSelectedCard(null);
+    }
+  }
+
+  /*
+   * ============================================================
+   * CARD KEYBOARD
+   * ============================================================
+   */
 
   function handleCardSearchKeyDown(
     event: React.KeyboardEvent<HTMLInputElement>,
   ) {
+    /*
+     * Escape
+     */
+    if (
+      event.key ===
+      "Escape"
+    ) {
+      event.preventDefault();
+
+      setCards([]);
+      setHighlightedCardIndex(-1);
+
+      return;
+    }
+
+    /*
+     * ArrowRight
+     */
+    if (
+      event.key ===
+      "ArrowRight"
+    ) {
+      event.preventDefault();
+
+      if (cards.length > 0) {
+        const index =
+          highlightedCardIndex >=
+          0
+            ? highlightedCardIndex
+            : 0;
+
+        const card =
+          cards[index];
+
+        if (card) {
+          selectCard(card);
+        }
+      } else if (
+        selectedCard
+      ) {
+        amountInputRef.current?.focus();
+        amountInputRef.current?.select();
+      }
+
+      return;
+    }
+
+    /*
+     * No search results
+     */
+    if (
+      cards.length === 0
+    ) {
+      return;
+    }
+
+    /*
+     * ArrowDown
+     */
     if (
       event.key ===
       "ArrowDown"
     ) {
       event.preventDefault();
 
-      if (!cards.length) {
-        return;
-      }
-
       setHighlightedCardIndex(
-        (current) =>
-          Math.min(
-            current + 1,
-            cards.length - 1,
-          ),
+        (current) => {
+          if (
+            current < 0
+          ) {
+            return 0;
+          }
+
+          if (
+            current >=
+            cards.length - 1
+          ) {
+            return 0;
+          }
+
+          return current + 1;
+        },
       );
 
       return;
     }
 
+    /*
+     * ArrowUp
+     */
     if (
       event.key ===
       "ArrowUp"
     ) {
       event.preventDefault();
 
-      if (!cards.length) {
-        return;
-      }
-
       setHighlightedCardIndex(
-        (current) =>
-          Math.max(
-            current - 1,
-            0,
-          ),
+        (current) => {
+          if (
+            current <= 0
+          ) {
+            return (
+              cards.length - 1
+            );
+          }
+
+          return current - 1;
+        },
       );
 
       return;
     }
 
+    /*
+     * Enter
+     */
     if (
       event.key ===
-        "Enter" ||
-      event.key ===
-        "ArrowRight"
+      "Enter"
     ) {
-      if (
-        highlightedCardIndex >=
-          0 &&
-        cards[
-          highlightedCardIndex
-        ]
-      ) {
-        event.preventDefault();
+      event.preventDefault();
 
-        selectCard(
-          cards[
-            highlightedCardIndex
-          ],
-        );
+      const index =
+        highlightedCardIndex >=
+        0
+          ? highlightedCardIndex
+          : 0;
+
+      const card =
+        cards[index];
+
+      if (card) {
+        selectCard(card);
       }
     }
   }
 
-  // ============================================================
-  // AMOUNT KEYBOARD
-  // ============================================================
+  /*
+   * ============================================================
+   * AMOUNT KEYBOARD
+   * ============================================================
+   */
 
   function handleAmountKeyDown(
     event: React.KeyboardEvent<HTMLInputElement>,
@@ -653,6 +617,7 @@ export default function SDHTransactionPage() {
       event.preventDefault();
 
       cardSearchInputRef.current?.focus();
+      cardSearchInputRef.current?.select();
 
       return;
     }
@@ -667,9 +632,11 @@ export default function SDHTransactionPage() {
     }
   }
 
-  // ============================================================
-  // ADD / UPDATE
-  // ============================================================
+  /*
+   * ============================================================
+   * ADD / UPDATE TRANSACTION
+   * ============================================================
+   */
 
   function handleAddTransaction() {
     setError("");
@@ -710,9 +677,9 @@ export default function SDHTransactionPage() {
           100,
       ) / 100;
 
-    // ----------------------------------------------------------
-    // UPDATE EXISTING PREVIEW TRANSACTION
-    // ----------------------------------------------------------
+    /*
+     * UPDATE EXISTING PREVIEW ROW
+     */
 
     if (editingId) {
       setDrafts(
@@ -725,13 +692,10 @@ export default function SDHTransactionPage() {
               editingId
                 ? {
                     ...transaction,
-
                     cardId:
                       selectedCard._id,
-
                     cardNumber:
                       selectedCard.cardNumber,
-
                     amount:
                       roundedAmount,
                   }
@@ -739,54 +703,33 @@ export default function SDHTransactionPage() {
           ),
       );
 
-      setEditingId(
-        null,
-      );
+      setEditingId(null);
     } else {
-      // --------------------------------------------------------
-      // ADD NEW TRANSACTION
-      //
-      // Newest transaction goes
-      // to the top of preview.
-      // --------------------------------------------------------
+      /*
+       * NEWEST TRANSACTION FIRST
+       */
 
       setDrafts(
         (current) => [
           {
             id:
               crypto.randomUUID(),
-
             cardId:
               selectedCard._id,
-
             cardNumber:
               selectedCard.cardNumber,
-
             amount:
               roundedAmount,
           },
-
           ...current,
         ],
       );
     }
 
-    // ----------------------------------------------------------
-    // Reset input
-    // ----------------------------------------------------------
-
-    setSelectedCard(
-      null,
-    );
-
+    setSelectedCard(null);
     setCardSearch("");
-
     setCards([]);
-
-    setHighlightedCardIndex(
-      -1,
-    );
-
+    setHighlightedCardIndex(-1);
     setAmount("");
 
     requestAnimationFrame(
@@ -796,34 +739,30 @@ export default function SDHTransactionPage() {
     );
   }
 
-  // ============================================================
-  // EDIT PREVIEW TRANSACTION
-  // ============================================================
+  /*
+   * ============================================================
+   * EDIT PREVIEW TRANSACTION
+   * ============================================================
+   */
 
   function handleEditTransaction(
     transaction: DraftTransaction,
   ) {
-    const card: CardItem =
-      {
-        _id:
-          transaction.cardId,
-
-        cardNumber:
-          transaction.cardNumber,
-      };
+    setOpenMenuId(null);
 
     setEditingId(
       transaction.id,
     );
 
-    setSelectedCard(
-      card,
-    );
+    setSelectedCard({
+      _id:
+        transaction.cardId,
+      cardNumber:
+        transaction.cardNumber,
+    });
 
     setCardSearch(
-      formatCardNumber(
-        transaction.cardNumber,
-      ),
+      transaction.cardNumber,
     );
 
     setAmount(
@@ -838,25 +777,27 @@ export default function SDHTransactionPage() {
     requestAnimationFrame(
       () => {
         amountInputRef.current?.focus();
-
         amountInputRef.current?.select();
       },
     );
   }
 
-  // ============================================================
-  // DELETE PREVIEW TRANSACTION
-  // ============================================================
+  /*
+   * ============================================================
+   * DELETE TRANSACTION
+   * ============================================================
+   */
 
   function handleDeleteTransaction(
     id: string,
   ) {
+    setOpenMenuId(null);
+
     setDrafts(
       (current) =>
         current.filter(
           (transaction) =>
-            transaction.id !==
-            id,
+            transaction.id !== id,
         ),
     );
 
@@ -864,44 +805,50 @@ export default function SDHTransactionPage() {
       editingId === id
     ) {
       setEditingId(null);
-
-      setSelectedCard(
-        null,
-      );
-
+      setSelectedCard(null);
       setCardSearch("");
-
       setAmount("");
     }
   }
 
-  // ============================================================
-  // CLEAR ALL
-  // ============================================================
+  /*
+   * ============================================================
+   * CANCEL EDIT
+   * ============================================================
+   */
+
+  function handleCancelEdit() {
+    setEditingId(null);
+    setSelectedCard(null);
+    setCardSearch("");
+    setCards([]);
+    setHighlightedCardIndex(-1);
+    setAmount("");
+
+    requestAnimationFrame(
+      () => {
+        cardSearchInputRef.current?.focus();
+      },
+    );
+  }
+
+  /*
+   * ============================================================
+   * CLEAR ALL
+   * ============================================================
+   */
 
   function handleClearAll() {
     setDrafts([]);
-
     setPreviewSearch("");
-
     setEditingId(null);
-
-    setSelectedCard(
-      null,
-    );
-
+    setSelectedCard(null);
     setCardSearch("");
-
     setCards([]);
-
-    setHighlightedCardIndex(
-      -1,
-    );
-
+    setHighlightedCardIndex(-1);
     setAmount("");
-
+    setOpenMenuId(null);
     setError("");
-
     setSuccess("");
 
     requestAnimationFrame(
@@ -911,9 +858,11 @@ export default function SDHTransactionPage() {
     );
   }
 
-  // ============================================================
-  // PREVIEW SEARCH
-  // ============================================================
+  /*
+   * ============================================================
+   * PREVIEW SEARCH
+   * ============================================================
+   */
 
   const filteredDrafts =
     useMemo(() => {
@@ -937,39 +886,35 @@ export default function SDHTransactionPage() {
       previewSearch,
     ]);
 
-  // ============================================================
-  // TOTAL
-  // ============================================================
+  /*
+   * ============================================================
+   * TOTAL
+   * ============================================================
+   */
 
   const totalAmount =
-    useMemo(
-      () =>
-        drafts.reduce(
-          (
-            total,
-            transaction,
-          ) =>
-            total +
-            transaction.amount,
-          0,
-        ),
-      [drafts],
-    );
+    useMemo(() => {
+      return drafts.reduce(
+        (
+          total,
+          transaction,
+        ) =>
+          total +
+          transaction.amount,
+        0,
+      );
+    }, [drafts]);
 
-  // ============================================================
-  // UPDATE EXISTING FILE
-  //
-  // This calls the shared file endpoint.
-  //
-  // Backend step must implement:
-  //
-  // PUT /api/transactions/files/:id
-  //
-  // and keep the SAME GeneratedFile ID.
-  // ============================================================
+  /*
+   * ============================================================
+   * UPDATE EXISTING FILE
+   * ============================================================
+   */
 
   async function updateExistingFile(
-    format: "xlsx" | "csv",
+    format:
+      | "xlsx"
+      | "csv",
     downloadAfterSave: boolean,
   ) {
     if (!fileId) {
@@ -996,11 +941,6 @@ export default function SDHTransactionPage() {
           },
 
           body: JSON.stringify({
-            department:
-              "SDH",
-
-            format,
-
             transactions:
               drafts.map(
                 (
@@ -1008,13 +948,12 @@ export default function SDHTransactionPage() {
                 ) => ({
                   cardId:
                     transaction.cardId,
-
                   amount:
-                    Number(
-                      transaction.amount,
-                    ),
+                    transaction.amount,
                 }),
               ),
+
+            format,
           }),
         },
       );
@@ -1032,16 +971,18 @@ export default function SDHTransactionPage() {
       );
     }
 
-    // ----------------------------------------------------------
-    // Download updated same file
-    // ----------------------------------------------------------
+    /*
+     * Generate button:
+     * download updated same file.
+     */
 
-    if (downloadAfterSave) {
+    if (
+      downloadAfterSave
+    ) {
       const downloadResponse =
         await fetch(
           `/api/transactions/files/${fileId}?format=${format}`,
           {
-            method: "GET",
             cache: "no-store",
           },
         );
@@ -1049,20 +990,8 @@ export default function SDHTransactionPage() {
       if (
         !downloadResponse.ok
       ) {
-        let message =
-          "File updated, but download failed.";
-
-        try {
-          const downloadResult =
-            await downloadResponse.json();
-
-          message =
-            downloadResult.message ||
-            message;
-        } catch {}
-
         throw new Error(
-          message,
+          "File updated, but download failed.",
         );
       }
 
@@ -1071,31 +1000,16 @@ export default function SDHTransactionPage() {
 
       if (!blob.size) {
         throw new Error(
-          "Updated file is empty.",
+          "Generated file is empty.",
         );
       }
 
-      const contentDisposition =
-        downloadResponse.headers.get(
-          "Content-Disposition",
-        );
-
-      const fileNameMatch =
-        contentDisposition?.match(
-          /filename="([^"]+)"/i,
-        );
-
       const baseName =
-        fileName
-          .replace(
-            /\.(xlsx|csv)$/i,
-            "",
-          ) ||
+        fileName.replace(
+          /\.(xlsx|csv)$/i,
+          "",
+        ) ||
         "SALARY_SDH09066_20161229";
-
-      const downloadName =
-        fileNameMatch?.[1] ||
-        `${baseName}.${format}`;
 
       const blobUrl =
         window.URL.createObjectURL(
@@ -1111,7 +1025,7 @@ export default function SDHTransactionPage() {
         blobUrl;
 
       anchor.download =
-        downloadName;
+        `${baseName}.${format}`;
 
       document.body.appendChild(
         anchor,
@@ -1126,23 +1040,24 @@ export default function SDHTransactionPage() {
       );
     }
 
-    if (
-      result.data?.fileName
-    ) {
-      setFileName(
-        result.data.fileName,
-      );
-    }
+    setFileName(
+      result.data?.fileName ||
+        fileName,
+    );
 
     return true;
   }
 
-  // ============================================================
-  // GENERATE CSV / XLSX
-  // ============================================================
+  /*
+   * ============================================================
+   * GENERATE CSV / XLSX
+   * ============================================================
+   */
 
   async function downloadGeneratedFile(
-    format: "xlsx" | "csv",
+    format:
+      | "xlsx"
+      | "csv",
   ) {
     setError("");
     setSuccess("");
@@ -1156,15 +1071,13 @@ export default function SDHTransactionPage() {
     }
 
     try {
-      setGeneratingFile(
-        true,
-      );
+      setGeneratingFile(true);
 
-      // --------------------------------------------------------
-      // EDIT MODE
-      //
-      // Update SAME GeneratedFile.
-      // --------------------------------------------------------
+      /*
+       * EDIT MODE
+       *
+       * Update SAME GeneratedFile.
+       */
 
       if (
         isEditMode &&
@@ -1182,11 +1095,11 @@ export default function SDHTransactionPage() {
         return;
       }
 
-      // --------------------------------------------------------
-      // NORMAL MODE
-      //
-      // Existing SDH endpoint.
-      // --------------------------------------------------------
+      /*
+       * NORMAL MODE
+       *
+       * Existing SDH generator.
+       */
 
       const response =
         await fetch(
@@ -1202,17 +1115,11 @@ export default function SDHTransactionPage() {
             body: JSON.stringify({
               /*
                * IMPORTANT:
+               * Send exact preview order.
                *
-               * Keep frontend preview
-               * order unchanged.
-               *
-               * Backend handles:
-               *
-               * preview newest-first
-               * ->
-               * file oldest-first
+               * Backend reverses it
+               * for file order.
                */
-
               transactions:
                 drafts.map(
                   (
@@ -1220,7 +1127,6 @@ export default function SDHTransactionPage() {
                   ) => ({
                     cardId:
                       transaction.cardId,
-
                     amount:
                       transaction.amount,
                   }),
@@ -1229,7 +1135,9 @@ export default function SDHTransactionPage() {
           },
         );
 
-      if (!response.ok) {
+      if (
+        !response.ok
+      ) {
         let message =
           "Unable to generate file.";
 
@@ -1303,28 +1211,18 @@ export default function SDHTransactionPage() {
         blobUrl,
       );
 
-      // --------------------------------------------------------
-      // Clear after normal generation.
-      // --------------------------------------------------------
+      /*
+       * Reset after successful
+       * normal generation.
+       */
 
       setDrafts([]);
-
       setPreviewSearch("");
-
       setEditingId(null);
-
-      setSelectedCard(
-        null,
-      );
-
+      setSelectedCard(null);
       setCardSearch("");
-
       setCards([]);
-
-      setHighlightedCardIndex(
-        -1,
-      );
-
+      setHighlightedCardIndex(-1);
       setAmount("");
 
       requestAnimationFrame(
@@ -1336,9 +1234,7 @@ export default function SDHTransactionPage() {
       setSuccess(
         `${generatedFileName} generated and saved successfully.`,
       );
-    } catch (
-      generateError
-    ) {
+    } catch (generateError) {
       console.error(
         `Generate SDH ${format} error:`,
         generateError,
@@ -1351,15 +1247,15 @@ export default function SDHTransactionPage() {
           : "Unable to generate file.",
       );
     } finally {
-      setGeneratingFile(
-        false,
-      );
+      setGeneratingFile(false);
     }
   }
 
-  // ============================================================
-  // SAVE TRANSACTIONS
-  // ============================================================
+  /*
+   * ============================================================
+   * SAVE TRANSACTIONS
+   * ============================================================
+   */
 
   async function handleSaveTransactions() {
     setError("");
@@ -1367,7 +1263,7 @@ export default function SDHTransactionPage() {
 
     if (!drafts.length) {
       setError(
-        "Please add at least one transaction.",
+        "Please keep at least one transaction.",
       );
 
       return;
@@ -1376,11 +1272,11 @@ export default function SDHTransactionPage() {
     try {
       setSaving(true);
 
-      // --------------------------------------------------------
-      // EDIT MODE
-      //
-      // Update same GeneratedFile.
-      // --------------------------------------------------------
+      /*
+       * EDIT MODE
+       *
+       * Update SAME GeneratedFile.
+       */
 
       if (
         isEditMode &&
@@ -1398,11 +1294,11 @@ export default function SDHTransactionPage() {
         return;
       }
 
-      // --------------------------------------------------------
-      // NORMAL MODE
-      //
-      // Existing SDH Save behavior.
-      // --------------------------------------------------------
+      /*
+       * NORMAL MODE
+       *
+       * Existing SDH behavior.
+       */
 
       const response =
         await fetch(
@@ -1423,7 +1319,6 @@ export default function SDHTransactionPage() {
                   ) => ({
                     cardId:
                       transaction.cardId,
-
                     amount:
                       transaction.amount,
                   }),
@@ -1445,28 +1340,13 @@ export default function SDHTransactionPage() {
         );
       }
 
-      // --------------------------------------------------------
-      // Clear normal draft.
-      // --------------------------------------------------------
-
       setDrafts([]);
-
       setPreviewSearch("");
-
       setEditingId(null);
-
-      setSelectedCard(
-        null,
-      );
-
+      setSelectedCard(null);
       setCardSearch("");
-
       setCards([]);
-
-      setHighlightedCardIndex(
-        -1,
-      );
-
+      setHighlightedCardIndex(-1);
       setAmount("");
 
       requestAnimationFrame(
@@ -1480,12 +1360,10 @@ export default function SDHTransactionPage() {
 
       setSuccess(
         savedFileName
-          ? `Transactions saved successfully. ${savedFileName} is available in Uploaded Files.`
+          ? `Transactions saved successfully. ${savedFileName} is available in Generated Files.`
           : "Transactions and file saved successfully.",
       );
-    } catch (
-      saveError
-    ) {
+    } catch (saveError) {
       console.error(
         "Save SDH transactions error:",
         saveError,
@@ -1502,43 +1380,45 @@ export default function SDHTransactionPage() {
     }
   }
 
-  // ============================================================
-  // RENDER
-  //
-  // IMPORTANT:
-  // Original UI is preserved.
-  // ============================================================
+  /*
+   * ============================================================
+   * RENDER
+   * ============================================================
+   */
 
   return (
     <main className="min-h-full bg-slate-50 p-4 sm:p-6">
-
       <div className="mx-auto max-w-[1400px] space-y-5">
 
-        {/* ======================================================
-            HEADER
-        ======================================================= */}
-
+        {/* Header */}
         <div>
           <h1 className="text-2xl font-bold tracking-tight text-slate-900">
-            Create SDH Transaction File
+            {isEditMode
+              ? "Edit SDH Transaction File"
+              : "Create SDH Transaction File"}
           </h1>
 
           <p className="mt-1 text-sm text-slate-500">
-            Add card numbers and amounts, review the
-            transactions, and generate your payment file.
+            {isEditMode
+              ? fileName ||
+                "Edit existing SDH transaction file."
+              : "Add card numbers and amounts, review the transactions, and generate your payment file."}
           </p>
         </div>
 
-        {/* ======================================================
-            ERROR
-        ======================================================= */}
+        {/* Loading */}
+        {loadingFile && (
+          <div className="flex items-center gap-2 rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-700">
+            <Loader2 className="h-4 w-4 animate-spin" />
 
+            Loading existing transactions...
+          </div>
+        )}
+
+        {/* Error */}
         {error && (
           <div className="flex items-center justify-between gap-3 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-
-            <span>
-              {error}
-            </span>
+            <span>{error}</span>
 
             <button
               type="button"
@@ -1549,20 +1429,13 @@ export default function SDHTransactionPage() {
             >
               <X className="h-4 w-4" />
             </button>
-
           </div>
         )}
 
-        {/* ======================================================
-            SUCCESS
-        ======================================================= */}
-
+        {/* Success */}
         {success && (
           <div className="flex items-center justify-between gap-3 rounded-xl border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-700">
-
-            <span>
-              {success}
-            </span>
+            <span>{success}</span>
 
             <button
               type="button"
@@ -1573,58 +1446,36 @@ export default function SDHTransactionPage() {
             >
               <X className="h-4 w-4" />
             </button>
-
           </div>
         )}
 
-        {/* ======================================================
-            EXISTING FILE LOADING
-            No new UI.
-            Just disables nothing; error/success handles failures.
-        ======================================================= */}
-
-        {loadingFile && (
-          <div className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-500">
-
-            <Loader2 className="h-4 w-4 animate-spin" />
-
-            Loading transactions...
-
-          </div>
-        )}
-
-        {/* ======================================================
-            ADD TRANSACTION
-        ======================================================= */}
+        {/* ================================================== */}
+        {/* ADD TRANSACTION */}
+        {/* ================================================== */}
 
         <section className="rounded-xl border border-slate-200 bg-white shadow-sm">
 
           <div className="border-b border-slate-100 p-5">
-
             <div className="flex items-center gap-2">
-
               <CreditCard className="h-5 w-5 text-blue-600" />
 
               <h2 className="text-base font-semibold text-slate-900">
-
                 {editingId
                   ? "Edit Transaction"
                   : "Add Transaction"}
-
               </h2>
-
             </div>
-
           </div>
 
           <div className="p-5">
 
-            <div className="grid gap-5 md:grid-cols-[1fr_260px_auto]">
+            {/* SAME ROW:
+                Card Number + Amount + Add
+            */}
 
-              {/* ==================================================
-                  CARD
-              =================================================== */}
+            <div className="grid gap-4 md:grid-cols-[1fr_220px_auto]">
 
+              {/* Card Number */}
               <div className="relative">
 
                 <label className="mb-1.5 block text-sm font-medium text-slate-700">
@@ -1633,7 +1484,7 @@ export default function SDHTransactionPage() {
 
                 <div className="relative">
 
-                  <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                  <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
 
                   <input
                     ref={
@@ -1644,149 +1495,118 @@ export default function SDHTransactionPage() {
                     }
                     onChange={(
                       event,
-                    ) => {
-                      setCardSearch(
+                    ) =>
+                      handleCardInputChange(
                         event.target
                           .value,
-                      );
-
-                      setSelectedCard(
-                        null,
-                      );
-                    }}
+                      )
+                    }
                     onKeyDown={
                       handleCardSearchKeyDown
                     }
                     placeholder="Search card number..."
-                    className="h-11 w-full rounded-lg border border-slate-200 bg-white pl-10 pr-10 text-sm text-slate-900 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                    className="h-11 w-full rounded-lg border border-slate-200 bg-white pl-9 pr-9 text-sm text-slate-900 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
                   />
 
-                  {cardSearch && (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setCardSearch(
-                          "",
-                        );
-
-                        setSelectedCard(
-                          null,
-                        );
-
-                        setCards(
-                          [],
-                        );
-
-                        setHighlightedCardIndex(
-                          -1,
-                        );
-                      }}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700"
-                    >
-                      <X className="h-4 w-4" />
-                    </button>
+                  {loadingCards && (
+                    <Loader2 className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 animate-spin text-slate-400" />
                   )}
 
                 </div>
 
-                {/* Search Suggestions */}
-
+                {/* Search Results */}
                 {!selectedCard &&
                   cardSearch.trim() &&
-                  (cards.length >
-                    0 ||
-                    loadingCards) && (
+                  cards.length >
+                    0 && (
                     <div className="absolute left-0 right-0 top-[76px] z-30 overflow-hidden rounded-lg border border-slate-200 bg-white shadow-xl">
 
-                      {loadingCards ? (
+                      <div className="max-h-64 overflow-y-auto">
 
-                        <div className="flex items-center gap-2 px-4 py-3 text-sm text-slate-500">
+                        {cards.map(
+                          (
+                            card,
+                            index,
+                          ) => (
+                            <button
+                              key={
+                                card._id
+                              }
+                              type="button"
+                              onMouseDown={(
+                                event,
+                              ) => {
+                                event.preventDefault();
 
-                          <Loader2 className="h-4 w-4 animate-spin" />
+                                selectCard(
+                                  card,
+                                );
+                              }}
+                              className={`flex w-full items-center gap-3 border-b border-slate-100 px-4 py-3 text-left last:border-0 ${
+                                index ===
+                                highlightedCardIndex
+                                  ? "bg-blue-50"
+                                  : "hover:bg-slate-50"
+                              }`}
+                            >
 
-                          Searching cards...
+                              <CreditCard className="h-4 w-4 shrink-0 text-slate-400" />
 
-                        </div>
-
-                      ) : (
-
-                        <div className="max-h-64 overflow-y-auto">
-
-                          {cards.map(
-                            (
-                              card,
-                              index,
-                            ) => (
-
-                              <button
-                                key={
-                                  card._id
+                              {/* FULL CARD NUMBER */}
+                              <span className="flex-1 font-medium text-slate-800">
+                                {
+                                  card.cardNumber
                                 }
-                                type="button"
-                                onMouseDown={(
-                                  event,
-                                ) => {
-                                  event.preventDefault();
+                              </span>
 
-                                  selectCard(
-                                    card,
-                                  );
-                                }}
-                                className={`flex w-full items-center gap-3 border-b border-slate-100 px-4 py-3 text-left last:border-0 ${
-                                  index ===
-                                  highlightedCardIndex
-                                    ? "bg-blue-50"
-                                    : "hover:bg-slate-50"
-                                }`}
-                              >
+                            </button>
+                          ),
+                        )}
 
-                                <CreditCard className="h-4 w-4 shrink-0 text-slate-400" />
-
-                                <span className="text-sm font-medium text-slate-800">
-
-                                  {formatCardNumber(
-                                    card.cardNumber,
-                                  )}
-
-                                </span>
-
-                              </button>
-
-                            ),
-                          )}
-
-                        </div>
-
-                      )}
+                      </div>
 
                     </div>
                   )}
 
+                {/* Selected Card */}
                 {selectedCard && (
-                  <div className="mt-2 flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-700">
-
-                    <CheckCircle2 className="h-4 w-4" />
+                  <div className="mt-2 flex items-center justify-between rounded-lg bg-green-50 px-3 py-2 text-sm text-green-700">
 
                     <span>
                       Selected:{" "}
-                      {maskCardNumber(
-                        selectedCard.cardNumber,
-                      )}
+                      <strong>
+                        {
+                          selectedCard.cardNumber
+                        }
+                      </strong>
                     </span>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSelectedCard(
+                          null,
+                        );
+
+                        setCardSearch(
+                          "",
+                        );
+                      }}
+                      className="text-green-700 hover:text-green-900"
+                    >
+                      <X className="h-4 w-4" />
+                    </button>
 
                   </div>
                 )}
 
               </div>
 
-              {/* ==================================================
-                  AMOUNT
-              =================================================== */}
-
+              {/* Amount */}
               <div>
 
                 <label className="mb-1.5 block text-sm font-medium text-slate-700">
-                  Amount
+                  Amount (₹)
                 </label>
 
                 <input
@@ -1796,9 +1616,7 @@ export default function SDHTransactionPage() {
                   type="number"
                   min="0.01"
                   step="0.01"
-                  value={
-                    amount
-                  }
+                  value={amount}
                   onChange={(
                     event,
                   ) =>
@@ -1816,10 +1634,7 @@ export default function SDHTransactionPage() {
 
               </div>
 
-              {/* ==================================================
-                  ADD BUTTON
-              =================================================== */}
-
+              {/* Add */}
               <div className="flex items-end">
 
                 <button
@@ -1837,74 +1652,53 @@ export default function SDHTransactionPage() {
                   {editingId ? (
                     <>
                       <CheckCircle2 className="h-4 w-4" />
-
                       Update
                     </>
                   ) : (
                     <>
                       <Plus className="h-4 w-4" />
-
                       Add
                     </>
                   )}
 
                 </button>
 
-                {editingId && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setEditingId(
-                        null,
-                      );
-
-                      setSelectedCard(
-                        null,
-                      );
-
-                      setCardSearch(
-                        "",
-                      );
-
-                      setCards([]);
-
-                      setAmount("");
-                    }}
-                    className="ml-2 h-11 rounded-lg border border-slate-200 bg-white px-4 text-sm font-medium text-slate-700 hover:bg-slate-50"
-                  >
-                    Cancel
-                  </button>
-                )}
-
               </div>
 
             </div>
+
+            {editingId && (
+              <button
+                type="button"
+                onClick={
+                  handleCancelEdit
+                }
+                className="mt-3 text-sm font-medium text-slate-500 hover:text-slate-700"
+              >
+                Cancel Edit
+              </button>
+            )}
 
           </div>
 
         </section>
 
-        {/* ======================================================
-            PREVIEW
-        ======================================================= */}
+        {/* ================================================== */}
+        {/* PREVIEW */}
+        {/* ================================================== */}
 
         <section className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
 
           {/* Preview Header */}
-
           <div className="flex flex-col gap-4 border-b border-slate-100 p-5 lg:flex-row lg:items-center lg:justify-between">
 
             <div>
 
               <h2 className="text-base font-semibold text-slate-900">
-
                 Preview ({drafts.length}{" "}
-
-                {drafts.length ===
-                1
+                {drafts.length === 1
                   ? "Entry"
                   : "Entries"})
-
               </h2>
 
               <p className="mt-1 text-xs text-slate-500">
@@ -1913,62 +1707,72 @@ export default function SDHTransactionPage() {
 
             </div>
 
-            {/* Preview Search */}
+            <div className="flex w-full gap-2 lg:w-auto">
 
-            <div className="relative w-full lg:w-80">
+              <div className="relative w-full lg:w-80">
 
-              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
 
-              <input
-                ref={
-                  previewSearchInputRef
-                }
-                value={
-                  previewSearch
-                }
-                onChange={(
-                  event,
-                ) =>
-                  setPreviewSearch(
-                    event.target
-                      .value,
-                  )
-                }
-                placeholder="Search preview by card number..."
-                className="h-10 w-full rounded-lg border border-slate-200 bg-white pl-9 pr-9 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
-              />
-
-              {previewSearch && (
-                <button
-                  type="button"
-                  onClick={() =>
+                <input
+                  ref={
+                    previewSearchInputRef
+                  }
+                  value={
+                    previewSearch
+                  }
+                  onChange={(
+                    event,
+                  ) =>
                     setPreviewSearch(
-                      "",
+                      event.target
+                        .value,
                     )
                   }
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700"
-                >
-                  <X className="h-4 w-4" />
-                </button>
-              )}
+                  placeholder="Search preview..."
+                  className="h-10 w-full rounded-lg border border-slate-200 bg-white pl-9 pr-9 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                />
+
+                {previewSearch && (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setPreviewSearch(
+                        "",
+                      )
+                    }
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                )}
+
+              </div>
+
+              <button
+                type="button"
+                onClick={
+                  handleClearAll
+                }
+                disabled={
+                  drafts.length ===
+                  0
+                }
+                className="h-10 shrink-0 rounded-lg border border-red-200 bg-white px-4 text-sm font-medium text-red-600 transition hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                Clear All
+              </button>
 
             </div>
 
           </div>
 
-          {/* ====================================================
-              EMPTY
-          ===================================================== */}
-
+          {/* Empty */}
           {drafts.length ===
           0 ? (
-
             <div className="flex flex-col items-center justify-center px-5 py-16 text-center">
 
               <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-slate-100 text-slate-400">
-
-                <CreditCard className="h-6 w-6" />
-
+                <CreditCard className="h-5 w-5" />
               </div>
 
               <p className="mt-4 text-sm font-medium text-slate-700">
@@ -1980,279 +1784,322 @@ export default function SDHTransactionPage() {
               </p>
 
             </div>
-
           ) : filteredDrafts.length ===
             0 ? (
-
-            <div className="px-5 py-12 text-center">
-
-              <Search className="mx-auto h-7 w-7 text-slate-300" />
-
-              <p className="mt-3 text-sm font-medium text-slate-600">
-                No matching transaction
-              </p>
-
-              <p className="mt-1 text-xs text-slate-400">
-                Try another card number.
-              </p>
-
+            <div className="px-5 py-12 text-center text-sm text-slate-500">
+              No transactions found for this search.
             </div>
-
           ) : (
+            <>
 
-            /* ==================================================
-               TABLE
-            =================================================== */
+              {/* Table */}
+              <div className="overflow-x-auto">
 
-            <div className="overflow-x-auto">
+                <table className="w-full min-w-[750px] text-sm">
 
-              <table className="w-full min-w-[700px] text-sm">
+                  <thead>
+                    <tr className="border-b border-slate-200 bg-slate-50">
 
-                <thead>
+                      <th className="px-5 py-3 text-left font-medium text-slate-600">
+                        #
+                      </th>
 
-                  <tr className="border-b border-slate-200 bg-slate-50/70 text-left">
+                      <th className="px-5 py-3 text-left font-medium text-slate-600">
+                        Card Number
+                      </th>
 
-                    <th className="px-5 py-3 font-medium text-slate-500">
-                      #
-                    </th>
+                      <th className="px-5 py-3 text-right font-medium text-slate-600">
+                        Amount
+                      </th>
 
-                    <th className="px-5 py-3 font-medium text-slate-500">
-                      Card Number
-                    </th>
+                      <th className="px-5 py-3 text-right font-medium text-slate-600">
+                        Actions
+                      </th>
 
-                    <th className="px-5 py-3 text-right font-medium text-slate-500">
-                      Amount
-                    </th>
+                    </tr>
+                  </thead>
 
-                    <th className="px-5 py-3 text-right font-medium text-slate-500">
-                      Actions
-                    </th>
+                  <tbody>
 
-                  </tr>
+                    {filteredDrafts.map(
+                      (
+                        transaction,
+                        index,
+                      ) => {
 
-                </thead>
+                        const isEditing =
+                          editingId ===
+                          transaction.id;
 
-                <tbody>
+                        return (
+                          <tr
+                            key={
+                              transaction.id
+                            }
+                            className="border-b border-slate-100 last:border-0"
+                          >
 
-                  {filteredDrafts.map(
-                    (
-                      transaction,
-                      index,
-                    ) => (
+                            <td className="px-5 py-4 text-slate-500">
+                              {index + 1}
+                            </td>
 
-                      <tr
-                        key={
-                          transaction.id
-                        }
-                        className="border-b border-slate-100 last:border-0 hover:bg-slate-50/60"
-                      >
-
-                        <td className="px-5 py-3 text-slate-400">
-                          {index +
-                            1}
-                        </td>
-
-                        <td className="px-5 py-3">
-
-                          <div className="font-medium text-slate-800">
-                            {maskCardNumber(
-                              transaction.cardNumber,
-                            )}
-                          </div>
-
-                        </td>
-
-                        <td className="px-5 py-3 text-right font-semibold text-slate-800">
-                          {formatCurrency(
-                            transaction.amount,
-                          )}
-                        </td>
-
-                        <td className="px-5 py-3">
-
-                          <div className="flex justify-end gap-2">
-
-                            <button
-                              type="button"
-                              onClick={() =>
-                                handleEditTransaction(
-                                  transaction,
-                                )
+                            {/* FULL CARD NUMBER */}
+                            <td className="px-5 py-4 font-medium text-slate-700">
+                              {
+                                transaction.cardNumber
                               }
-                              className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50"
-                            >
-                              Edit
-                            </button>
+                            </td>
 
-                            <button
-                              type="button"
-                              onClick={() =>
-                                handleDeleteTransaction(
-                                  transaction.id,
-                                )
-                              }
-                              className="inline-flex items-center gap-1 rounded-lg border border-red-200 bg-white px-3 py-1.5 text-xs font-medium text-red-600 hover:bg-red-50"
-                            >
+                            <td className="px-5 py-4 text-right">
 
-                              <Trash2 className="h-3.5 w-3.5" />
+                              {isEditing ? (
+                                <input
+                                  type="number"
+                                  min="0.01"
+                                  step="0.01"
+                                  value={
+                                    amount
+                                  }
+                                  onChange={(
+                                    event,
+                                  ) =>
+                                    setAmount(
+                                      event
+                                        .target
+                                        .value,
+                                    )
+                                  }
+                                  onKeyDown={(
+                                    event,
+                                  ) => {
+                                    if (
+                                      event.key ===
+                                      "Enter"
+                                    ) {
+                                      handleAddTransaction();
+                                    }
 
-                              Delete
+                                    if (
+                                      event.key ===
+                                      "Escape"
+                                    ) {
+                                      handleCancelEdit();
+                                    }
+                                  }}
+                                  className="ml-auto h-9 w-32 rounded-lg border border-slate-200 px-3 text-right text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                                />
+                              ) : (
+                                <span className="font-semibold text-slate-800">
+                                  ₹
+                                  {transaction.amount.toLocaleString(
+                                    "en-IN",
+                                    {
+                                      minimumFractionDigits: 2,
+                                      maximumFractionDigits: 2,
+                                    },
+                                  )}
+                                </span>
+                              )}
 
-                            </button>
+                            </td>
 
-                          </div>
+                            {/* ACTIONS */}
+                            <td className="px-5 py-4">
 
-                        </td>
+                              <div className="flex justify-end">
 
-                      </tr>
+                                {isEditing ? (
+                                  <div className="flex gap-2">
 
-                    ),
-                  )}
+                                    <button
+                                      type="button"
+                                      onClick={
+                                        handleAddTransaction
+                                      }
+                                      className="rounded-lg bg-blue-600 px-3 py-2 text-xs font-medium text-white hover:bg-blue-700"
+                                    >
+                                      Save
+                                    </button>
 
-                </tbody>
+                                    <button
+                                      type="button"
+                                      onClick={
+                                        handleCancelEdit
+                                      }
+                                      className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-600 hover:bg-slate-50"
+                                    >
+                                      Cancel
+                                    </button>
 
-              </table>
+                                  </div>
+                                ) : (
+                                  <div className="relative">
 
-            </div>
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        setOpenMenuId(
+                                          (
+                                            current,
+                                          ) =>
+                                            current ===
+                                            transaction.id
+                                              ? null
+                                              : transaction.id,
+                                        )
+                                      }
+                                      className="flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-500 hover:bg-slate-50 hover:text-slate-700"
+                                      aria-label="Transaction actions"
+                                    >
+                                      <Ellipsis className="h-4 w-4" />
+                                    </button>
 
+                                    {openMenuId ===
+                                      transaction.id && (
+                                      <div className="absolute right-0 top-11 z-20 w-36 overflow-hidden rounded-lg border border-slate-200 bg-white py-1 shadow-lg">
+
+                                        <button
+                                          type="button"
+                                          onClick={() =>
+                                            handleEditTransaction(
+                                              transaction,
+                                            )
+                                          }
+                                          className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-50"
+                                        >
+                                          Edit
+                                        </button>
+
+                                        <button
+                                          type="button"
+                                          onClick={() =>
+                                            handleDeleteTransaction(
+                                              transaction.id,
+                                            )
+                                          }
+                                          className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-red-600 hover:bg-red-50"
+                                        >
+                                          <Trash2 className="h-4 w-4" />
+                                          Delete
+                                        </button>
+
+                                      </div>
+                                    )}
+
+                                  </div>
+                                )}
+
+                              </div>
+
+                            </td>
+
+                          </tr>
+                        );
+                      },
+                    )}
+
+                  </tbody>
+
+                </table>
+
+              </div>
+
+              {/* Bottom Summary */}
+              <div className="flex flex-col gap-4 border-t border-slate-200 p-5 sm:flex-row sm:items-center sm:justify-between">
+
+                <div>
+
+                  <p className="text-xs text-slate-500">
+                    Total Amount
+                  </p>
+
+                  <p className="text-xl font-bold text-slate-900">
+                    ₹
+                    {totalAmount.toLocaleString(
+                      "en-IN",
+                      {
+                        minimumFractionDigits: 2,
+                        maximumFractionDigits: 2,
+                      },
+                    )}
+                  </p>
+
+                </div>
+
+                <div className="flex flex-col gap-2 sm:flex-row">
+
+                  <button
+                    type="button"
+                    onClick={() =>
+                      downloadGeneratedFile(
+                        "csv",
+                      )
+                    }
+                    disabled={
+                      saving ||
+                      generatingFile
+                    }
+                    className="inline-flex h-10 items-center justify-center rounded-lg border border-slate-200 bg-white px-4 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {generatingFile
+                      ? "Generating..."
+                      : "Generate CSV"}
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() =>
+                      downloadGeneratedFile(
+                        "xlsx",
+                      )
+                    }
+                    disabled={
+                      saving ||
+                      generatingFile
+                    }
+                    className="inline-flex h-10 items-center justify-center rounded-lg border border-slate-200 bg-white px-4 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {generatingFile
+                      ? "Generating..."
+                      : "Generate Excel"}
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={
+                      handleSaveTransactions
+                    }
+                    disabled={
+                      saving ||
+                      generatingFile
+                    }
+                    className="inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 text-sm font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+
+                    {saving ? (
+                      <>
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                        Saving...
+                      </>
+                    ) : (
+                      <>
+                        <CheckCircle2 className="h-4 w-4" />
+                        Save Transactions
+                      </>
+                    )}
+
+                  </button>
+
+                </div>
+
+              </div>
+
+            </>
           )}
-
-          {/* ====================================================
-              FOOTER
-          ===================================================== */}
-
-          <div className="flex flex-col gap-4 border-t border-slate-100 bg-slate-50/60 p-5 lg:flex-row lg:items-center lg:justify-between">
-
-            {/* Total */}
-
-            <div>
-
-              <p className="text-xs text-slate-500">
-                Total Amount
-              </p>
-
-              <p className="mt-1 text-xl font-bold text-slate-900">
-                {formatCurrency(
-                  totalAmount,
-                )}
-              </p>
-
-            </div>
-
-            {/* Actions */}
-
-            <div className="flex flex-wrap justify-end gap-2">
-
-              {/* Clear */}
-
-              {drafts.length >
-                0 && (
-                <button
-                  type="button"
-                  onClick={
-                    handleClearAll
-                  }
-                  disabled={
-                    saving ||
-                    generatingFile
-                  }
-                  className="inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-red-200 bg-white px-4 text-sm font-medium text-red-600 transition hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
-                >
-
-                  <Trash2 className="h-4 w-4" />
-
-                  Clear All
-
-                </button>
-              )}
-
-              {/* Save */}
-
-              <button
-                type="button"
-                onClick={
-                  handleSaveTransactions
-                }
-                disabled={
-                  saving ||
-                  generatingFile ||
-                  !drafts.length
-                }
-                className="inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-4 text-sm font-medium text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-
-                {saving ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  <CheckCircle2 className="h-4 w-4" />
-                )}
-
-                Save Transactions
-
-              </button>
-
-              {/* CSV */}
-
-              <button
-                type="button"
-                onClick={() =>
-                  downloadGeneratedFile(
-                    "csv",
-                  )
-                }
-                disabled={
-                  saving ||
-                  generatingFile ||
-                  !drafts.length
-                }
-                className="inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-4 text-sm font-medium text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-
-                {generatingFile ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  <Download className="h-4 w-4" />
-                )}
-
-                Generate CSV
-
-              </button>
-
-              {/* XLSX */}
-
-              <button
-                type="button"
-                onClick={() =>
-                  downloadGeneratedFile(
-                    "xlsx",
-                  )
-                }
-                disabled={
-                  saving ||
-                  generatingFile ||
-                  !drafts.length
-                }
-                className="inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-
-                {generatingFile ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  <FileSpreadsheet className="h-4 w-4" />
-                )}
-
-                Generate XLSX
-
-              </button>
-
-            </div>
-
-          </div>
 
         </section>
 
       </div>
-
     </main>
   );
 }
