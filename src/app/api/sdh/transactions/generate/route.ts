@@ -228,7 +228,7 @@ async function createXlsx(
     ) {
       for (
         let column = 1;
-        column <= 6;
+        column <= 5;
         column++
       ) {
         const cell =
