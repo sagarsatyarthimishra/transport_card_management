@@ -5,6 +5,7 @@ import {
   CreditCard,
   Ellipsis,
   Loader2,
+  Pencil,
   Plus,
   Search,
   Trash2,
@@ -17,6 +18,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { useRouter } from "next/navigation";
 
 interface CardItem {
   _id: string;
@@ -71,6 +73,7 @@ function getFileIdFromUrl() {
 }
 
 export default function TransactionsPage() {
+  const router = useRouter();
   /*
    * ============================================================
    * STATE
@@ -1190,6 +1193,7 @@ export default function TransactionsPage() {
         setSuccess(
           "MMM transactions updated successfully in the same file.",
         );
+        router.replace("/files");
 
         return;
       }
@@ -1452,15 +1456,15 @@ export default function TransactionsPage() {
                                     );
                                   }}
                                   className={`flex w-full items-center gap-3 border-b border-slate-100 px-4 py-3 text-left last:border-0 ${isHighlighted
-                                      ? "bg-blue-50"
-                                      : "hover:bg-slate-50"
+                                    ? "bg-blue-50"
+                                    : "hover:bg-slate-50"
                                     }`}
                                 >
 
                                   <CreditCard
                                     className={`h-4 w-4 shrink-0 ${isHighlighted
-                                        ? "text-blue-600"
-                                        : "text-slate-400"
+                                      ? "text-blue-600"
+                                      : "text-slate-400"
                                       }`}
                                   />
 
@@ -1895,6 +1899,7 @@ export default function TransactionsPage() {
                                             }
                                             className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-50"
                                           >
+                                            <Pencil className="h-4 w-4" />
                                             Edit
                                           </button>
 
