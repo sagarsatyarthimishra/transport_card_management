@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { Types } from "mongoose";
 import { Binary } from "mongodb";
 import ExcelJS from "exceljs";
@@ -6,39 +6,71 @@ import ExcelJS from "exceljs";
 import { getCurrentSession } from "@/lib/auth";
 import { connectToDatabase } from "@/lib/mongodb";
 
-import Card from "@/models/Card";
-import Transaction from "@/models/Transaction";
-
-import SDHCard from "@/models/SDHCard";
-import SDHTransaction from "@/models/SDHTransaction";
-
 import GeneratedFile from "@/models/GeneratedFile";
+import Transaction from "@/models/Transaction";
+import SDHTransaction from "@/models/SDHTransaction";
+import Card from "@/models/Card";
+import SDHCard from "@/models/SDHCard";
 
 export const runtime = "nodejs";
+
+// ============================================================
+// CONSTANTS
+// ============================================================
 
 const XLSX_CONTENT_TYPE =
   "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
 
-const CSV_CONTENT_TYPE = "text/csv; charset=utf-8";
+const CSV_CONTENT_TYPE =
+  "text/csv; charset=utf-8";
 
-const MMM_CODE = "MMM11473";
-const SDH_CODE = "SDH09066";
+// ============================================================
+// TYPES
+// ============================================================
+
+type Department =
+  | "MMM"
+  | "SDH";
 
 interface TransactionInput {
   cardId: string;
   amount: number;
 }
 
-function isSDHFile(fileName: string) {
-  return fileName.includes(SDH_CODE);
+interface UpdateRequestBody {
+  department: Department;
+  format?: "xlsx" | "csv";
+  transactions: TransactionInput[];
 }
 
-function normalizeCardNumber(value: string): string {
-  return value.replace(/\s+/g, "").trim().toLowerCase();
+interface TransactionRow {
+  cardNumber: string;
+  amount: number;
 }
 
-function csvEscape(value: string | number): string {
-  const text = String(value);
+// ============================================================
+// HELPERS
+// ============================================================
+
+function normalizeCardNumber(
+  value: string,
+): string {
+  return value
+    .replace(/\s+/g, "")
+    .trim()
+    .toLowerCase();
+}
+
+// ============================================================
+// CSV ESCAPE
+// ============================================================
+
+function csvEscape(
+  value: unknown,
+): string {
+  const text = String(
+    value ?? "",
+  );
 
   if (
     text.includes(",") ||
@@ -46,65 +78,271 @@ function csvEscape(value: string | number): string {
     text.includes("\n") ||
     text.includes("\r")
   ) {
-    return `"${text.replace(/"/g, '""')}"`;
+    return `"${text.replace(
+      /"/g,
+      '""',
+    )}"`;
   }
 
   return text;
 }
 
+// ============================================================
+// BUFFER HELPER
+// ============================================================
+
+function toBuffer(
+  value: unknown,
+): Buffer | null {
+  if (
+    value === null ||
+    value === undefined
+  ) {
+    return null;
+  }
+
+  if (Buffer.isBuffer(value)) {
+    return value;
+  }
+
+  if (value instanceof Uint8Array) {
+    return Buffer.from(value);
+  }
+
+  if (
+    typeof value === "object" &&
+    value !== null
+  ) {
+    const binary =
+      value as {
+        buffer?: unknown;
+        value?: () => unknown;
+        type?: unknown;
+        data?: unknown;
+      };
+
+    if (binary.buffer) {
+      if (
+        Buffer.isBuffer(
+          binary.buffer,
+        )
+      ) {
+        return binary.buffer;
+      }
+
+      if (
+        binary.buffer instanceof
+        Uint8Array
+      ) {
+        return Buffer.from(
+          binary.buffer,
+        );
+      }
+
+      if (
+        binary.buffer instanceof
+        ArrayBuffer
+      ) {
+        return Buffer.from(
+          binary.buffer,
+        );
+      }
+    }
+
+    if (
+      typeof binary.value ===
+      "function"
+    ) {
+      try {
+        const result =
+          binary.value();
+
+        if (
+          Buffer.isBuffer(
+            result,
+          )
+        ) {
+          return result;
+        }
+
+        if (
+          result instanceof
+          Uint8Array
+        ) {
+          return Buffer.from(
+            result,
+          );
+        }
+      } catch {
+        // Continue.
+      }
+    }
+
+    if (
+      binary.type === "Buffer" &&
+      Array.isArray(
+        binary.data,
+      )
+    ) {
+      return Buffer.from(
+        binary.data as number[],
+      );
+    }
+  }
+
+  return null;
+}
+
+// ============================================================
+// DUPLICATE CARDS
+// ============================================================
+
 function findDuplicateCards(
-  transactions: {
-    cardNumber: string;
-  }[],
+  transactions: TransactionRow[],
 ): Set<string> {
-  const counts = new Map<string, number>();
+  const counts =
+    new Map<string, number>();
 
   for (const transaction of transactions) {
-    const normalized = normalizeCardNumber(
-      transaction.cardNumber,
-    );
+    const normalized =
+      normalizeCardNumber(
+        transaction.cardNumber,
+      );
 
     counts.set(
       normalized,
-      (counts.get(normalized) ?? 0) + 1,
+      (counts.get(
+        normalized,
+      ) ?? 0) + 1,
     );
   }
 
-  const duplicates = new Set<string>();
+  const duplicates =
+    new Set<string>();
 
-  for (const [cardNumber, count] of counts) {
+  for (
+    const [cardNumber, count] of counts
+  ) {
     if (count > 1) {
-      duplicates.add(cardNumber);
+      duplicates.add(
+        cardNumber,
+      );
     }
   }
 
   return duplicates;
 }
 
-async function createXlsx(
-  transactions: {
-    cardNumber: string;
-    amount: number;
-  }[],
-  department: "MMM" | "SDH",
-): Promise<Buffer> {
-  const workbook = new ExcelJS.Workbook();
+// ============================================================
+// BUILD 5-COLUMN ROWS
+//
+// A = Card Number
+// B = CR
+// C = Amount
+// D = PETY EXP
+// E = Department Code
+// ============================================================
 
-  const now = new Date();
+function buildRows(
+  transactions: TransactionRow[],
+  departmentCode:
+    | "MMM11473"
+    | "SDH09066",
+): string[][] {
+  return transactions.map(
+    (transaction) => [
+      String(
+        transaction.cardNumber,
+      ),
 
-  workbook.creator = "Transport Department";
-  workbook.lastModifiedBy = "Transport Department";
-  workbook.created = now;
-  workbook.modified = now;
+      "CR",
 
-  const code =
-    department === "SDH"
-      ? SDH_CODE
-      : MMM_CODE;
+      Number(
+        transaction.amount,
+      ).toFixed(2),
 
-  const worksheet = workbook.addWorksheet(
-    `SALARY_${code}_20161229`,
+      "PETY EXP",
+
+      departmentCode,
+    ],
   );
+}
+
+// ============================================================
+// CREATE CSV
+// ============================================================
+
+function createCsv(
+  transactions: TransactionRow[],
+  departmentCode:
+    | "MMM11473"
+    | "SDH09066",
+): Buffer {
+  const rows =
+    buildRows(
+      transactions,
+      departmentCode,
+    );
+
+  const content =
+    "\uFEFF" +
+    rows
+      .map((row) =>
+        row
+          .map(csvEscape)
+          .join(","),
+      )
+      .join("\r\n");
+
+  return Buffer.from(
+    content,
+    "utf8",
+  );
+}
+
+// ============================================================
+// CREATE XLSX
+//
+// IMPORTANT:
+// Only A:E are used.
+// No extra sixth column.
+// ============================================================
+
+async function createXlsx(
+  transactions: TransactionRow[],
+  departmentCode:
+    | "MMM11473"
+    | "SDH09066",
+): Promise<Buffer> {
+  const workbook =
+    new ExcelJS.Workbook();
+
+  const now =
+    new Date();
+
+  workbook.creator =
+    "Transport Department";
+
+  workbook.lastModifiedBy =
+    "Transport Department";
+
+  workbook.created =
+    now;
+
+  workbook.modified =
+    now;
+
+  const worksheet =
+    workbook.addWorksheet(
+      departmentCode ===
+        "SDH09066"
+        ? "SALARY_SDH09066_20161229"
+        : "SALARY_MMM11473_20210202",
+    );
+
+  // ----------------------------------------------------------
+  // EXACTLY FIVE COLUMNS
+  // ----------------------------------------------------------
 
   worksheet.columns = [
     {
@@ -130,53 +368,131 @@ async function createXlsx(
   ];
 
   const duplicateCards =
-    findDuplicateCards(transactions);
+    findDuplicateCards(
+      transactions,
+    );
 
-  for (const transaction of transactions) {
-    const row = worksheet.addRow([
-      String(transaction.cardNumber),
-      "CR",
-      Number(transaction.amount),
-      "PETY EXP",
-      code,
-    ]);
+  // ----------------------------------------------------------
+  // TRANSACTIONS ARE ALREADY
+  // oldest -> newest
+  // ----------------------------------------------------------
 
-    row.getCell(1).numFmt = "@";
+  for (
+    const transaction of transactions
+  ) {
+    const row =
+      worksheet.addRow([
+        String(
+          transaction.cardNumber,
+        ),
+
+        "CR",
+
+        Number(
+          transaction.amount,
+        ),
+
+        "PETY EXP",
+
+        departmentCode,
+      ]);
+
+    // --------------------------------------------------------
+    // Card number as TEXT
+    // --------------------------------------------------------
+
+    row.getCell(1).numFmt =
+      "@";
+
     row.getCell(1).value =
-      String(transaction.cardNumber);
+      String(
+        transaction.cardNumber,
+      );
 
-    row.getCell(2).numFmt = "@";
-    row.getCell(3).numFmt = "0.00";
-    row.getCell(4).numFmt = "@";
-    row.getCell(5).numFmt = "@";
+    // --------------------------------------------------------
+    // Type
+    // --------------------------------------------------------
 
-    // Exactly A:E
-    for (let column = 1; column <= 5; column++) {
-      const cell = row.getCell(column);
+    row.getCell(2).numFmt =
+      "@";
+
+    // --------------------------------------------------------
+    // Amount
+    // --------------------------------------------------------
+
+    row.getCell(3).numFmt =
+      "0.00";
+
+    // --------------------------------------------------------
+    // Description
+    // --------------------------------------------------------
+
+    row.getCell(4).numFmt =
+      "@";
+
+    // --------------------------------------------------------
+    // Department
+    // --------------------------------------------------------
+
+    row.getCell(5).numFmt =
+      "@";
+
+    // --------------------------------------------------------
+    // Borders
+    // --------------------------------------------------------
+
+    for (
+      let column = 1;
+      column <= 5;
+      column++
+    ) {
+      const cell =
+        row.getCell(
+          column,
+        );
 
       cell.border = {
         top: {
           style: "thin",
         },
+
         bottom: {
           style: "thin",
         },
+
         left: {
           style: "thin",
         },
+
         right: {
           style: "thin",
         },
       };
     }
 
-    const normalized = normalizeCardNumber(
-      transaction.cardNumber,
-    );
+    // --------------------------------------------------------
+    // Duplicate highlighting
+    // --------------------------------------------------------
 
-    if (duplicateCards.has(normalized)) {
-      for (let column = 1; column <= 5; column++) {
-        const cell = row.getCell(column);
+    const normalized =
+      normalizeCardNumber(
+        transaction.cardNumber,
+      );
+
+    if (
+      duplicateCards.has(
+        normalized,
+      )
+    ) {
+      for (
+        let column = 1;
+        column <= 5;
+        column++
+      ) {
+        const cell =
+          row.getCell(
+            column,
+          );
 
         cell.fill = {
           type: "pattern",
@@ -193,92 +509,222 @@ async function createXlsx(
     }
   }
 
-  const buffer = await workbook.xlsx.writeBuffer();
+  const buffer =
+    await workbook.xlsx.writeBuffer();
 
-  return Buffer.from(buffer);
-}
-
-function createCsv(
-  transactions: {
-    cardNumber: string;
-    amount: number;
-  }[],
-  department: "MMM" | "SDH",
-): Buffer {
-  const code =
-    department === "SDH"
-      ? SDH_CODE
-      : MMM_CODE;
-
-  const rows = transactions.map(
-    (transaction) => [
-      String(transaction.cardNumber),
-      "CR",
-      Number(transaction.amount).toFixed(2),
-      "PETY EXP",
-      code,
-    ],
+  return Buffer.from(
+    buffer,
   );
-
-  const content =
-    "\uFEFF" +
-    rows
-      .map((row) =>
-        row
-          .map(csvEscape)
-          .join(","),
-      )
-      .join("\r\n");
-
-  return Buffer.from(content, "utf8");
 }
 
-async function generateFileBuffer(
-  transactions: {
-    cardNumber: string;
-    amount: number;
-  }[],
-  department: "MMM" | "SDH",
-  format: "xlsx" | "csv",
+// ============================================================
+// GET TRANSACTIONS FOR EDIT
+//
+// GET /api/transactions/files/:id?mode=edit
+//
+// Returns:
+// - file
+// - department
+// - transactions
+//
+// Transactions are returned oldest -> newest.
+// Frontend reverses them for preview.
+// ============================================================
+
+async function getEditData(
+  fileObjectId: Types.ObjectId,
+  userObjectId: Types.ObjectId,
 ) {
-  if (format === "csv") {
+  const file =
+    await GeneratedFile.findOne(
+      {
+        _id: fileObjectId,
+        userId: userObjectId,
+      },
+    )
+      .select(
+        "_id fileName fileSize transactionCount totalAmount contentType createdAt updatedAt",
+      )
+      .lean();
+
+  if (!file) {
+    return null;
+  }
+
+  const isSDHFile =
+    String(
+      file.fileName ?? "",
+    )
+      .toUpperCase()
+      .includes(
+        "SDH09066",
+      );
+
+  if (isSDHFile) {
+    const transactions =
+      await SDHTransaction.find(
+        {
+          generatedFileId:
+            fileObjectId,
+
+          userId:
+            userObjectId,
+        },
+      )
+        .select(
+          "_id cardId cardNumber amount sequence status",
+        )
+        .sort({
+          sequence: 1,
+          createdAt: 1,
+        })
+        .lean();
+
     return {
-      buffer: createCsv(
-        transactions,
-        department,
-      ),
-      contentType: CSV_CONTENT_TYPE,
+      file: {
+        id:
+          file._id.toString(),
+
+        fileName:
+          file.fileName,
+
+        fileSize:
+          file.fileSize ?? null,
+
+        transactionCount:
+          file.transactionCount,
+
+        totalAmount:
+          file.totalAmount,
+
+        contentType:
+          file.contentType,
+
+        createdAt:
+          file.createdAt,
+
+        updatedAt:
+          file.updatedAt,
+      },
+
+      department:
+        "SDH" as const,
+
+      transactions:
+        transactions.map(
+          (transaction) => ({
+            id:
+              transaction._id.toString(),
+
+            cardId:
+              transaction.cardId.toString(),
+
+            cardNumber:
+              transaction.cardNumber,
+
+            amount:
+              Number(
+                transaction.amount,
+              ),
+
+            sequence:
+              transaction.sequence,
+
+            status:
+              transaction.status,
+          }),
+        ),
     };
   }
 
+  const transactions =
+    await Transaction.find(
+      {
+        generatedFileId:
+          fileObjectId,
+
+        userId:
+          userObjectId,
+      },
+    )
+      .select(
+        "_id cardId cardNumber amount status createdAt",
+      )
+      .sort({
+        createdAt: 1,
+      })
+      .lean();
+
   return {
-    buffer: await createXlsx(
-      transactions,
-      department,
-    ),
-    contentType: XLSX_CONTENT_TYPE,
+    file: {
+      id:
+        file._id.toString(),
+
+      fileName:
+        file.fileName,
+
+      fileSize:
+        file.fileSize ?? null,
+
+      transactionCount:
+        file.transactionCount,
+
+      totalAmount:
+        file.totalAmount,
+
+      contentType:
+        file.contentType,
+
+      createdAt:
+        file.createdAt,
+
+      updatedAt:
+        file.updatedAt,
+    },
+
+    department:
+      "MMM" as const,
+
+    transactions:
+      transactions.map(
+        (transaction) => ({
+          id:
+            transaction._id.toString(),
+
+          cardId:
+            transaction.cardId.toString(),
+
+          cardNumber:
+            transaction.cardNumber,
+
+          amount:
+            Number(
+              transaction.amount,
+            ),
+
+          status:
+            transaction.status,
+        }),
+      ),
   };
 }
 
-function getFormatFromFileName(
-  fileName: string,
-): "xlsx" | "csv" {
-  return fileName.toLowerCase().endsWith(".csv")
-    ? "csv"
-    : "xlsx";
-}
+// ============================================================
+// GET
+//
+// Two modes:
+//
+// 1. Download
+//
+// /api/transactions/files/:id?format=xlsx
+//
+// 2. Edit data
+//
+// /api/transactions/files/:id?mode=edit
+// ============================================================
 
-/**
- * GET
- *
- * Normal:
- * /api/transactions/files/:id?format=xlsx
- *
- * Edit:
- * /api/transactions/files/:id?mode=edit
- */
 export async function GET(
-  request: NextRequest,
+  request: Request,
   context: {
     params: Promise<{
       id: string;
@@ -286,6 +732,10 @@ export async function GET(
   },
 ) {
   try {
+    // ========================================================
+    // AUTH
+    // ========================================================
+
     const session =
       await getCurrentSession();
 
@@ -293,269 +743,353 @@ export async function GET(
       return NextResponse.json(
         {
           success: false,
-          message: "Unauthorized.",
+          message:
+            "Unauthorized.",
         },
-        { status: 401 },
+        {
+          status: 401,
+        },
       );
     }
 
-    const { id } = await context.params;
+    // ========================================================
+    // FILE ID
+    // ========================================================
 
-    if (!Types.ObjectId.isValid(id)) {
+    const { id } =
+      await context.params;
+
+    if (
+      !Types.ObjectId.isValid(
+        id,
+      )
+    ) {
       return NextResponse.json(
         {
           success: false,
-          message: "Invalid file ID.",
+          message:
+            "Invalid file ID.",
         },
-        { status: 400 },
+        {
+          status: 400,
+        },
       );
     }
+
+    const fileObjectId =
+      new Types.ObjectId(id);
+
+    const userObjectId =
+      new Types.ObjectId(
+        session.userId,
+      );
+
+    // ========================================================
+    // DATABASE
+    // ========================================================
 
     await connectToDatabase();
 
-    const userId = new Types.ObjectId(
-      session.userId,
-    );
-
-    const file =
-      await GeneratedFile.findOne({
-        _id: id,
-        userId,
-      }).lean();
-
-    if (!file) {
-      return NextResponse.json(
-        {
-          success: false,
-          message: "File not found.",
-        },
-        { status: 404 },
-      );
-    }
-
     const { searchParams } =
-      request.nextUrl;
+      new URL(request.url);
 
-    /**
-     * EDIT MODE
-     */
-    if (
-      searchParams.get("mode") === "edit"
-    ) {
-      const isSDH = isSDHFile(
-        file.fileName,
+    const mode =
+      searchParams.get(
+        "mode",
       );
 
-      if (isSDH) {
-        const transactions =
-          await SDHTransaction.find({
-            generatedFileId: file._id,
-            userId,
-          })
-            .sort({
-              sequence: 1,
-              createdAt: 1,
-              _id: 1,
-            })
-            .lean();
+    // ========================================================
+    // EDIT MODE
+    // ========================================================
 
+    if (mode === "edit") {
+      const data =
+        await getEditData(
+          fileObjectId,
+          userObjectId,
+        );
+
+      if (!data) {
         return NextResponse.json(
           {
-            success: true,
-            data: {
-              file: {
-                id: file._id.toString(),
-                fileName: file.fileName,
-                fileSize:
-                  file.fileSize,
-                transactionCount:
-                  file.transactionCount,
-                totalAmount:
-                  file.totalAmount,
-                contentType:
-                  file.contentType,
-                createdAt:
-                  file.createdAt,
-                updatedAt:
-                  file.updatedAt,
-              },
-
-              department: "SDH",
-
-              transactions:
-                transactions.map(
-                  (transaction) => ({
-                    id: transaction._id.toString(),
-                    cardId:
-                      transaction.cardId.toString(),
-                    cardNumber:
-                      transaction.cardNumber,
-                    amount:
-                      transaction.amount,
-                    sequence:
-                      transaction.sequence,
-                    status:
-                      transaction.status,
-                  }),
-                ),
-            },
+            success: false,
+            message:
+              "File not found.",
           },
-          { status: 200 },
+          {
+            status: 404,
+          },
         );
       }
-
-      const transactions =
-        await Transaction.find({
-          generatedFileId: file._id,
-          userId,
-        })
-          .sort({
-            createdAt: 1,
-            _id: 1,
-          })
-          .lean();
 
       return NextResponse.json(
         {
           success: true,
-          data: {
-            file: {
-              id: file._id.toString(),
-              fileName: file.fileName,
-              fileSize:
-                file.fileSize,
-              transactionCount:
-                file.transactionCount,
-              totalAmount:
-                file.totalAmount,
-              contentType:
-                file.contentType,
-              createdAt:
-                file.createdAt,
-              updatedAt:
-                file.updatedAt,
-            },
-
-            department: "MMM",
-
-            transactions:
-              transactions.map(
-                (transaction) => ({
-                  id: transaction._id.toString(),
-                  cardId:
-                    transaction.cardId.toString(),
-                  cardNumber:
-                    transaction.cardNumber,
-                  amount:
-                    transaction.amount,
-                  status:
-                    transaction.status,
-                }),
-              ),
-          },
+          data,
         },
-        { status: 200 },
+        {
+          status: 200,
+        },
       );
     }
 
-    /**
-     * NORMAL DOWNLOAD MODE
-     */
+    // ========================================================
+    // DOWNLOAD MODE
+    // ========================================================
+
     const requestedFormat =
       searchParams
         .get("format")
         ?.trim()
-        .toLowerCase();
+        .toLowerCase() ??
+      "xlsx";
 
-    const format =
-      requestedFormat === "csv"
-        ? "csv"
-        : "xlsx";
+    if (
+      requestedFormat !==
+        "xlsx" &&
+      requestedFormat !==
+        "csv"
+    ) {
+      return NextResponse.json(
+        {
+          success: false,
+          message:
+            "Invalid download format.",
+        },
+        {
+          status: 400,
+        },
+      );
+    }
 
-    const isSDH = isSDHFile(
-      file.fileName,
-    );
+    // ========================================================
+    // GET FILE
+    // ========================================================
 
-    let transactions: {
-      cardNumber: string;
-      amount: number;
-    }[];
+    const rawFile =
+      await GeneratedFile.collection.findOne(
+        {
+          _id:
+            fileObjectId,
 
-    if (isSDH) {
-      const dbTransactions =
-        await SDHTransaction.find({
-          generatedFileId: file._id,
-          userId,
-        })
+          userId:
+            userObjectId,
+        },
+        {
+          projection: {
+            fileName: 1,
+            fileSize: 1,
+            fileData: 1,
+            contentType: 1,
+          },
+        },
+      );
+
+    if (!rawFile) {
+      return NextResponse.json(
+        {
+          success: false,
+          message:
+            "File not found.",
+        },
+        {
+          status: 404,
+        },
+      );
+    }
+
+    // ========================================================
+    // DEPARTMENT
+    // ========================================================
+
+    const isSDHFile =
+      String(
+        rawFile.fileName ?? "",
+      )
+        .toUpperCase()
+        .includes(
+          "SDH09066",
+        );
+
+    const departmentCode =
+      isSDHFile
+        ? "SDH09066"
+        : "MMM11473";
+
+    // ========================================================
+    // FETCH LINKED TRANSACTIONS
+    // ========================================================
+
+    let transactions:
+      TransactionRow[] = [];
+
+    if (isSDHFile) {
+      const sdhTransactions =
+        await SDHTransaction.find(
+          {
+            generatedFileId:
+              fileObjectId,
+
+            userId:
+              userObjectId,
+          },
+        )
+          .select(
+            "cardNumber amount sequence createdAt",
+          )
           .sort({
             sequence: 1,
             createdAt: 1,
-            _id: 1,
           })
           .lean();
 
       transactions =
-        dbTransactions.map(
+        sdhTransactions.map(
           (transaction) => ({
             cardNumber:
               transaction.cardNumber,
+
             amount:
-              transaction.amount,
+              Number(
+                transaction.amount,
+              ),
           }),
         );
     } else {
-      const dbTransactions =
-        await Transaction.find({
-          generatedFileId: file._id,
-          userId,
-        })
+      const mmmTransactions =
+        await Transaction.find(
+          {
+            generatedFileId:
+              fileObjectId,
+
+            userId:
+              userObjectId,
+          },
+        )
+          .select(
+            "cardNumber amount createdAt",
+          )
           .sort({
             createdAt: 1,
-            _id: 1,
           })
           .lean();
 
       transactions =
-        dbTransactions.map(
+        mmmTransactions.map(
           (transaction) => ({
             cardNumber:
               transaction.cardNumber,
+
             amount:
-              transaction.amount,
+              Number(
+                transaction.amount,
+              ),
           }),
         );
     }
 
-    const { buffer, contentType } =
-      await generateFileBuffer(
+    // ========================================================
+    // CSV
+    // ========================================================
+
+    if (
+      requestedFormat ===
+      "csv"
+    ) {
+      const csvBuffer =
+        createCsv(
+          transactions,
+          departmentCode,
+        );
+
+      const fileName =
+        String(
+          rawFile.fileName,
+        ).replace(
+          /\.[^.]+$/,
+          ".csv",
+        );
+
+      return new NextResponse(
+        new Uint8Array(
+          csvBuffer,
+        ),
+        {
+          status: 200,
+
+          headers: {
+            "Content-Type":
+              CSV_CONTENT_TYPE,
+
+            "Content-Disposition":
+              `attachment; filename="${fileName}"`,
+
+            "Content-Length":
+              String(
+                csvBuffer.length,
+              ),
+
+            "Cache-Control":
+              "no-store, no-cache, must-revalidate",
+          },
+        },
+      );
+    }
+
+    // ========================================================
+    // XLSX
+    //
+    // Always rebuild from transactions.
+    // This guarantees updated data is downloaded.
+    // ========================================================
+
+    const xlsxBuffer =
+      await createXlsx(
         transactions,
-        isSDH ? "SDH" : "MMM",
-        format,
+        departmentCode,
       );
 
-    const baseName =
-      file.fileName.replace(
-        /\.(xlsx|csv)$/i,
-        "",
+    if (
+      !xlsxBuffer.length
+    ) {
+      return NextResponse.json(
+        {
+          success: false,
+          message:
+            "Generated XLSX file is empty.",
+        },
+        {
+          status: 500,
+        },
       );
+    }
 
-    const downloadFileName =
-      `${baseName}.${format}`;
+    const xlsxFileName =
+      String(
+        rawFile.fileName,
+      ).replace(
+        /\.[^.]+$/,
+        ".xlsx",
+      );
 
     return new NextResponse(
-      new Uint8Array(buffer),
+      new Uint8Array(
+        xlsxBuffer,
+      ),
       {
         status: 200,
 
         headers: {
           "Content-Type":
-            contentType,
+            XLSX_CONTENT_TYPE,
 
           "Content-Disposition":
-            `attachment; filename="${downloadFileName}"`,
+            `attachment; filename="${xlsxFileName}"`,
 
           "Content-Length":
-            String(buffer.length),
+            String(
+              xlsxBuffer.length,
+            ),
 
           "Cache-Control":
             "no-store, no-cache, must-revalidate",
@@ -564,7 +1098,7 @@ export async function GET(
     );
   } catch (error) {
     console.error(
-      "Get/download generated file error:",
+      "Get generated file error:",
       error,
     );
 
@@ -574,21 +1108,30 @@ export async function GET(
         message:
           "Unable to process generated file.",
       },
-      { status: 500 },
+      {
+        status: 500,
+      },
     );
   }
 }
 
-/**
- * PUT
- *
- * Updates the EXISTING GeneratedFile.
- *
- * IMPORTANT:
- * It does NOT create a new GeneratedFile.
- */
+// ============================================================
+// PUT
+//
+// UPDATE EXISTING FILE
+//
+// IMPORTANT:
+//
+// Same GeneratedFile _id is preserved.
+//
+// Existing transactions belonging to that file are replaced.
+//
+// MMM -> Transaction
+// SDH -> SDHTransaction
+// ============================================================
+
 export async function PUT(
-  request: NextRequest,
+  request: Request,
   context: {
     params: Promise<{
       id: string;
@@ -596,6 +1139,10 @@ export async function PUT(
   },
 ) {
   try {
+    // ========================================================
+    // AUTH
+    // ========================================================
+
     const session =
       await getCurrentSession();
 
@@ -603,31 +1150,48 @@ export async function PUT(
       return NextResponse.json(
         {
           success: false,
-          message: "Unauthorized.",
+          message:
+            "Unauthorized.",
         },
-        { status: 401 },
+        {
+          status: 401,
+        },
       );
     }
 
-    const { id } = await context.params;
+    // ========================================================
+    // FILE ID
+    // ========================================================
 
-    if (!Types.ObjectId.isValid(id)) {
+    const { id } =
+      await context.params;
+
+    if (
+      !Types.ObjectId.isValid(
+        id,
+      )
+    ) {
       return NextResponse.json(
         {
           success: false,
-          message: "Invalid file ID.",
+          message:
+            "Invalid file ID.",
         },
-        { status: 400 },
+        {
+          status: 400,
+        },
       );
     }
 
-    let body: {
-      transactions?: TransactionInput[];
-      format?: "xlsx" | "csv";
-    };
+    // ========================================================
+    // BODY
+    // ========================================================
+
+    let body: UpdateRequestBody;
 
     try {
-      body = await request.json();
+      body =
+        (await request.json()) as UpdateRequestBody;
     } catch {
       return NextResponse.json(
         {
@@ -635,30 +1199,44 @@ export async function PUT(
           message:
             "Invalid request body.",
         },
-        { status: 400 },
+        {
+          status: 400,
+        },
       );
     }
 
-    const inputTransactions =
-      body.transactions;
+    // ========================================================
+    // VALIDATE DEPARTMENT
+    // ========================================================
 
     if (
-      !Array.isArray(
-        inputTransactions,
-      )
+      body.department !==
+        "MMM" &&
+      body.department !==
+        "SDH"
     ) {
       return NextResponse.json(
         {
           success: false,
           message:
-            "Transactions are required.",
+            "Invalid department.",
         },
-        { status: 400 },
+        {
+          status: 400,
+        },
       );
     }
 
+    // ========================================================
+    // VALIDATE TRANSACTIONS
+    // ========================================================
+
     if (
-      inputTransactions.length === 0
+      !Array.isArray(
+        body.transactions,
+      ) ||
+      body.transactions.length ===
+        0
     ) {
       return NextResponse.json(
         {
@@ -666,24 +1244,32 @@ export async function PUT(
           message:
             "Please keep at least one transaction.",
         },
-        { status: 400 },
+        {
+          status: 400,
+        },
       );
     }
 
     if (
-      inputTransactions.length > 1000
+      body.transactions.length >
+      1000
     ) {
       return NextResponse.json(
         {
           success: false,
           message:
-            "You can save a maximum of 1000 transactions.",
+            "You can have a maximum of 1000 transactions.",
         },
-        { status: 400 },
+        {
+          status: 400,
+        },
       );
     }
 
-    for (const transaction of inputTransactions) {
+    for (
+      const transaction of
+        body.transactions
+    ) {
       if (
         !transaction ||
         typeof transaction.cardId !==
@@ -698,7 +1284,9 @@ export async function PUT(
             message:
               "One or more cards are invalid.",
           },
-          { status: 400 },
+          {
+            status: 400,
+          },
         );
       }
 
@@ -708,7 +1296,8 @@ export async function PUT(
         !Number.isFinite(
           transaction.amount,
         ) ||
-        transaction.amount <= 0
+        transaction.amount <=
+          0
       ) {
         return NextResponse.json(
           {
@@ -716,181 +1305,354 @@ export async function PUT(
             message:
               "One or more transaction amounts are invalid.",
           },
-          { status: 400 },
+          {
+            status: 400,
+          },
         );
       }
     }
 
+    // ========================================================
+    // DATABASE
+    // ========================================================
+
     await connectToDatabase();
 
-    const userId = new Types.ObjectId(
-      session.userId,
-    );
+    const userObjectId =
+      new Types.ObjectId(
+        session.userId,
+      );
 
-    /**
-     * Find the SAME GeneratedFile.
-     */
+    const fileObjectId =
+      new Types.ObjectId(id);
+
+    // ========================================================
+    // FIND EXISTING FILE
+    // ========================================================
+
     const file =
-      await GeneratedFile.findOne({
-        _id: id,
-        userId,
-      });
+      await GeneratedFile.findOne(
+        {
+          _id:
+            fileObjectId,
+
+          userId:
+            userObjectId,
+        },
+      );
 
     if (!file) {
       return NextResponse.json(
         {
           success: false,
-          message: "File not found.",
+          message:
+            "File not found.",
         },
-        { status: 404 },
+        {
+          status: 404,
+        },
       );
     }
 
-    const isSDH = isSDHFile(
-      file.fileName,
-    );
+    // ========================================================
+    // DETERMINE ACTUAL DEPARTMENT
+    //
+    // Never allow MMM page to update SDH file
+    // or SDH page to update MMM file.
+    // ========================================================
 
-    /**
-     * Format:
-     *
-     * If frontend sends format,
-     * use it.
-     *
-     * Otherwise preserve existing
-     * file extension.
-     */
+    const isSDHFile =
+      String(
+        file.fileName ?? "",
+      )
+        .toUpperCase()
+        .includes(
+          "SDH09066",
+        );
+
+    const actualDepartment:
+      Department =
+      isSDHFile
+        ? "SDH"
+        : "MMM";
+
+    if (
+      body.department !==
+      actualDepartment
+    ) {
+      return NextResponse.json(
+        {
+          success: false,
+          message:
+            `Department mismatch. This is a ${actualDepartment} file.`,
+        },
+        {
+          status: 400,
+        },
+      );
+    }
+
+    // ========================================================
+    // FORMAT
+    // ========================================================
+
     const format =
-      body.format === "csv" ||
-      body.format === "xlsx"
-        ? body.format
-        : getFormatFromFileName(
-            file.fileName,
-          );
+      body.format ===
+      "csv"
+        ? "csv"
+        : "xlsx";
 
-    /**
-     * UI is newest-first.
-     *
-     * File/database sequence is
-     * oldest-first.
-     */
-    const transactions =
-      [...inputTransactions].reverse();
+    // ========================================================
+    // RESOLVE CARDS
+    //
+    // IMPORTANT:
+    //
+    // MMM uses Card
+    // SDH uses SDHCard
+    // ========================================================
 
-    /**
-     * Resolve cards from the CORRECT
-     * department collection.
-     */
     const cardIds =
-      transactions.map(
+      body.transactions.map(
         (transaction) =>
-          transaction.cardId,
+          new Types.ObjectId(
+            transaction.cardId,
+          ),
       );
 
-    if (isSDH) {
+    let resolvedTransactions:
+      TransactionRow[] = [];
+
+    const cardMap =
+      new Map<
+        string,
+        string
+      >();
+
+    if (
+      actualDepartment ===
+      "SDH"
+    ) {
       const cards =
-        await SDHCard.find({
-          _id: {
-            $in: cardIds,
+        await SDHCard.find(
+          {
+            _id: {
+              $in: cardIds,
+            },
+
+            userId:
+              userObjectId,
           },
-          userId,
-        })
+        )
           .select(
             "_id cardNumber",
           )
           .lean();
 
-      const cardMap =
-        new Map<string, string>();
-
-      for (const card of cards) {
+      for (
+        const card of cards
+      ) {
         cardMap.set(
           card._id.toString(),
           card.cardNumber,
         );
       }
-
-      for (const transaction of transactions) {
-        if (
-          !cardMap.has(
-            transaction.cardId,
-          )
-        ) {
-          return NextResponse.json(
-            {
-              success: false,
-              message:
-                "One or more selected SDH cards were not found.",
+    } else {
+      const cards =
+        await Card.find(
+          {
+            _id: {
+              $in: cardIds,
             },
-            { status: 404 },
-          );
-        }
+
+            userId:
+              userObjectId,
+          },
+        )
+          .select(
+            "_id cardNumber",
+          )
+          .lean();
+
+      for (
+        const card of cards
+      ) {
+        cardMap.set(
+          card._id.toString(),
+          card.cardNumber,
+        );
+      }
+    }
+
+    // ========================================================
+    // Make sure EVERY card belongs to correct user/department.
+    // ========================================================
+
+    for (
+      const transaction of
+        body.transactions
+    ) {
+      const cardNumber =
+        cardMap.get(
+          transaction.cardId,
+        );
+
+      if (!cardNumber) {
+        return NextResponse.json(
+          {
+            success: false,
+            message:
+              "One or more selected cards were not found.",
+          },
+          {
+            status: 400,
+          },
+        );
       }
 
-      const resolvedTransactions =
-        transactions.map(
-          (transaction) => ({
-            cardId:
-              transaction.cardId,
+      const roundedAmount =
+        Math.round(
+          (transaction.amount +
+            Number.EPSILON) *
+            100,
+        ) / 100;
 
-            cardNumber:
-              cardMap.get(
-                transaction.cardId,
-              )!,
+      resolvedTransactions.push(
+        {
+          cardNumber,
+          amount:
+            roundedAmount,
+        },
+      );
+    }
 
-            amount:
-              Number(
-                transaction.amount.toFixed(
-                  2,
-                ),
-              ),
-          }),
-        );
+    // ========================================================
+    // IMPORTANT ORDER
+    //
+    // Frontend sends:
+    //
+    // newest -> oldest
+    //
+    // Generated file must be:
+    //
+    // oldest -> newest
+    // ========================================================
 
-      const totalAmount =
-        resolvedTransactions.reduce(
-          (total, transaction) =>
-            total +
-            transaction.amount,
-          0,
-        );
+    resolvedTransactions =
+      resolvedTransactions.reverse();
 
-      const { buffer, contentType } =
-        await generateFileBuffer(
+    // ========================================================
+    // TOTAL
+    // ========================================================
+
+    const totalAmount =
+      resolvedTransactions.reduce(
+        (
+          total,
+          transaction,
+        ) =>
+          total +
+          transaction.amount,
+        0,
+      );
+
+    // ========================================================
+    // BUILD UPDATED FILE
+    // ========================================================
+
+    let fileBuffer:
+      Buffer;
+
+    let contentType:
+      string;
+
+    const departmentCode =
+      actualDepartment ===
+      "SDH"
+        ? "SDH09066"
+        : "MMM11473";
+
+    if (
+      format ===
+      "csv"
+    ) {
+      fileBuffer =
+        createCsv(
           resolvedTransactions,
-          "SDH",
-          format,
+          departmentCode,
         );
 
-      if (!buffer.length) {
-        throw new Error(
-          "Generated file is empty.",
+      contentType =
+        CSV_CONTENT_TYPE;
+    } else {
+      fileBuffer =
+        await createXlsx(
+          resolvedTransactions,
+          departmentCode,
         );
-      }
 
-      /**
-       * Remove old SDH transactions
-       * linked to THIS file.
-       */
-      await SDHTransaction.deleteMany({
-        generatedFileId: file._id,
-        userId,
-      });
+      contentType =
+        XLSX_CONTENT_TYPE;
+    }
 
-      /**
-       * Insert new transactions using
-       * the SAME GeneratedFile ID.
-       */
+    if (
+      !fileBuffer.length
+    ) {
+      throw new Error(
+        "Generated file is empty.",
+      );
+    }
+
+    // ========================================================
+    // REPLACE TRANSACTIONS
+    //
+    // We DO NOT create a new GeneratedFile.
+    //
+    // Existing GeneratedFile _id remains same.
+    // ========================================================
+
+    if (
+      actualDepartment ===
+      "SDH"
+    ) {
+      // ------------------------------------------------------
+      // Delete old SDH transactions
+      // ------------------------------------------------------
+
+      await SDHTransaction.deleteMany(
+        {
+          generatedFileId:
+            fileObjectId,
+
+          userId:
+            userObjectId,
+        },
+      );
+
+      // ------------------------------------------------------
+      // Insert updated SDH transactions
+      //
+      // sequence:
+      // 0 = oldest
+      // 1 = next
+      // ...
+      // ------------------------------------------------------
+
       await SDHTransaction.insertMany(
         resolvedTransactions.map(
           (
             transaction,
             index,
           ) => ({
-            userId,
+            userId:
+              userObjectId,
 
             cardId:
               new Types.ObjectId(
-                transaction.cardId,
+                body.transactions[
+                  body.transactions.length -
+                    1 -
+                    index
+                ].cardId,
               ),
 
             cardNumber:
@@ -899,234 +1661,149 @@ export async function PUT(
             amount:
               transaction.amount,
 
-            sequence: index,
+            sequence:
+              index,
 
             status:
               "pending" as const,
 
             generatedFileId:
-              file._id,
+              fileObjectId,
           }),
         ),
       );
+    } else {
+      // ------------------------------------------------------
+      // Delete old MMM transactions
+      // ------------------------------------------------------
 
-      const baseName =
-        file.fileName.replace(
-          /\.(xlsx|csv)$/i,
-          "",
-        );
-
-      const fileName =
-        `${baseName}.${format}`;
-
-      file.fileName = fileName;
-      file.fileSize = buffer.length;
-      file.transactionCount =
-        resolvedTransactions.length;
-      file.totalAmount =
-        Number(
-          totalAmount.toFixed(2),
-        );
-      file.fileData =
-        new Binary(buffer) as any;
-      file.contentType =
-        contentType;
-
-      await file.save();
-
-      return NextResponse.json(
+      await Transaction.deleteMany(
         {
-          success: true,
-          message:
-            "SDH file updated successfully.",
-          data: {
-            fileId:
-              file._id.toString(),
-            fileName,
-            fileSize:
-              buffer.length,
-            transactionCount:
-              resolvedTransactions.length,
-            totalAmount:
-              Number(
-                totalAmount.toFixed(2),
-              ),
-            format,
-          },
-        },
-        { status: 200 },
-      );
-    }
-
-    /**
-     * ============================
-     * MMM UPDATE
-     * ============================
-     */
-
-    const cards =
-      await Card.find({
-        _id: {
-          $in: cardIds,
-        },
-        userId,
-      })
-        .select(
-          "_id cardNumber",
-        )
-        .lean();
-
-    const cardMap =
-      new Map<string, string>();
-
-    for (const card of cards) {
-      cardMap.set(
-        card._id.toString(),
-        card.cardNumber,
-      );
-    }
-
-    for (const transaction of transactions) {
-      if (
-        !cardMap.has(
-          transaction.cardId,
-        )
-      ) {
-        return NextResponse.json(
-          {
-            success: false,
-            message:
-              "One or more selected MMM cards were not found.",
-          },
-          { status: 404 },
-        );
-      }
-    }
-
-    const resolvedTransactions =
-      transactions.map(
-        (transaction) => ({
-          cardId:
-            transaction.cardId,
-
-          cardNumber:
-            cardMap.get(
-              transaction.cardId,
-            )!,
-
-          amount:
-            Number(
-              transaction.amount.toFixed(
-                2,
-              ),
-            ),
-        }),
-      );
-
-    const totalAmount =
-      resolvedTransactions.reduce(
-        (total, transaction) =>
-          total +
-          transaction.amount,
-        0,
-      );
-
-    const { buffer, contentType } =
-      await generateFileBuffer(
-        resolvedTransactions,
-        "MMM",
-        format,
-      );
-
-    if (!buffer.length) {
-      throw new Error(
-        "Generated file is empty.",
-      );
-    }
-
-    /**
-     * Remove old MMM transactions
-     * linked to THIS file.
-     */
-    await Transaction.deleteMany({
-      generatedFileId: file._id,
-      userId,
-    });
-
-    /**
-     * Insert updated transactions
-     * with SAME GeneratedFile ID.
-     */
-    await Transaction.insertMany(
-      resolvedTransactions.map(
-        (transaction) => ({
-          userId,
-
-          cardId:
-            new Types.ObjectId(
-              transaction.cardId,
-            ),
-
-          cardNumber:
-            transaction.cardNumber,
-
-          amount:
-            transaction.amount,
-
-          status:
-            "pending" as const,
-
           generatedFileId:
-            file._id,
-        }),
-      ),
+            fileObjectId,
+
+          userId:
+            userObjectId,
+        },
+      );
+
+      // ------------------------------------------------------
+      // Insert updated MMM transactions
+      //
+      // MMM has no sequence field.
+      //
+      // Insert in file order.
+      // ------------------------------------------------------
+
+      await Transaction.insertMany(
+        resolvedTransactions.map(
+          (
+            transaction,
+            index,
+          ) => ({
+            userId:
+              userObjectId,
+
+            cardId:
+              new Types.ObjectId(
+                body.transactions[
+                  body.transactions.length -
+                    1 -
+                    index
+                ].cardId,
+              ),
+
+            cardNumber:
+              transaction.cardNumber,
+
+            amount:
+              transaction.amount,
+
+            status:
+              "pending" as const,
+
+            generatedFileId:
+              fileObjectId,
+
+            /*
+             * This is intentionally
+             * not a model field.
+             *
+             * createdAt from insert order
+             * preserves file order.
+             */
+          }),
+        ),
+      );
+    }
+
+    // ========================================================
+    // UPDATE SAME GeneratedFile
+    // ========================================================
+
+    await GeneratedFile.updateOne(
+      {
+        _id:
+          fileObjectId,
+
+        userId:
+          userObjectId,
+      },
+      {
+        $set: {
+          fileSize:
+            fileBuffer.length,
+
+          transactionCount:
+            resolvedTransactions.length,
+
+          totalAmount,
+
+          fileData:
+            new Binary(
+              fileBuffer,
+            ),
+
+          contentType,
+        },
+      },
     );
 
-    const baseName =
-      file.fileName.replace(
-        /\.(xlsx|csv)$/i,
-        "",
-      );
-
-    const fileName =
-      `${baseName}.${format}`;
-
-    file.fileName = fileName;
-    file.fileSize = buffer.length;
-    file.transactionCount =
-      resolvedTransactions.length;
-    file.totalAmount =
-      Number(
-        totalAmount.toFixed(2),
-      );
-    file.fileData =
-      new Binary(buffer) as any;
-    file.contentType =
-      contentType;
-
-    await file.save();
+    // ========================================================
+    // RESPONSE
+    // ========================================================
 
     return NextResponse.json(
       {
         success: true,
+
         message:
-          "MMM file updated successfully.",
+          "File updated successfully.",
+
         data: {
           fileId:
-            file._id.toString(),
-          fileName,
+            fileObjectId.toString(),
+
+          fileName:
+            file.fileName,
+
           fileSize:
-            buffer.length,
+            fileBuffer.length,
+
           transactionCount:
             resolvedTransactions.length,
-          totalAmount:
-            Number(
-              totalAmount.toFixed(2),
-            ),
+
+          totalAmount,
+
           format,
+
+          department:
+            actualDepartment,
         },
       },
-      { status: 200 },
+      {
+        status: 200,
+      },
     );
   } catch (error) {
     console.error(
@@ -1140,19 +1817,25 @@ export async function PUT(
         message:
           "Unable to update generated file.",
       },
-      { status: 500 },
+      {
+        status: 500,
+      },
     );
   }
 }
 
-/**
- * DELETE
- *
- * Deletes the GeneratedFile and
- * unlinks related transactions.
- */
+// ============================================================
+// DELETE
+//
+// Existing behavior preserved:
+//
+// Delete GeneratedFile
+// but preserve transaction history
+// by setting generatedFileId = null.
+// ============================================================
+
 export async function DELETE(
-  request: NextRequest,
+  request: Request,
   context: {
     params: Promise<{
       id: string;
@@ -1160,6 +1843,10 @@ export async function DELETE(
   },
 ) {
   try {
+    // ========================================================
+    // AUTH
+    // ========================================================
+
     const session =
       await getCurrentSession();
 
@@ -1167,80 +1854,143 @@ export async function DELETE(
       return NextResponse.json(
         {
           success: false,
-          message: "Unauthorized.",
+          message:
+            "Unauthorized.",
         },
-        { status: 401 },
+        {
+          status: 401,
+        },
       );
     }
 
-    const { id } = await context.params;
+    // ========================================================
+    // FILE ID
+    // ========================================================
 
-    if (!Types.ObjectId.isValid(id)) {
+    const { id } =
+      await context.params;
+
+    if (
+      !Types.ObjectId.isValid(
+        id,
+      )
+    ) {
       return NextResponse.json(
         {
           success: false,
-          message: "Invalid file ID.",
+          message:
+            "Invalid file ID.",
         },
-        { status: 400 },
+        {
+          status: 400,
+        },
       );
     }
 
     await connectToDatabase();
 
-    const userId = new Types.ObjectId(
-      session.userId,
-    );
+    const userObjectId =
+      new Types.ObjectId(
+        session.userId,
+      );
+
+    const fileObjectId =
+      new Types.ObjectId(id);
+
+    // ========================================================
+    // FIND FILE
+    // ========================================================
 
     const file =
-      await GeneratedFile.findOne({
-        _id: id,
-        userId,
-      });
+      await GeneratedFile.findOne(
+        {
+          _id:
+            fileObjectId,
+
+          userId:
+            userObjectId,
+        },
+      ).select(
+        "_id fileName",
+      );
 
     if (!file) {
       return NextResponse.json(
         {
           success: false,
-          message: "File not found.",
+          message:
+            "File not found.",
         },
-        { status: 404 },
+        {
+          status: 404,
+        },
       );
     }
 
-    /**
-     * Unlink both types safely.
-     *
-     * Only matching generatedFileId
-     * and userId are affected.
-     */
-    await Transaction.updateMany(
-      {
-        generatedFileId: file._id,
-        userId,
-      },
-      {
-        $set: {
-          generatedFileId: null,
+    // ========================================================
+    // DETERMINE DEPARTMENT
+    // ========================================================
+
+    const isSDHFile =
+      String(
+        file.fileName ?? "",
+      )
+        .toUpperCase()
+        .includes(
+          "SDH09066",
+        );
+
+    // ========================================================
+    // PRESERVE TRANSACTION HISTORY
+    // ========================================================
+
+    if (isSDHFile) {
+      await SDHTransaction.updateMany(
+        {
+          generatedFileId:
+            file._id,
+
+          userId:
+            userObjectId,
         },
+        {
+          $set: {
+            generatedFileId:
+              null,
+          },
+        },
+      );
+    } else {
+      await Transaction.updateMany(
+        {
+          generatedFileId:
+            file._id,
+
+          userId:
+            userObjectId,
+        },
+        {
+          $set: {
+            generatedFileId:
+              null,
+          },
+        },
+      );
+    }
+
+    // ========================================================
+    // DELETE FILE ONLY
+    // ========================================================
+
+    await GeneratedFile.deleteOne(
+      {
+        _id:
+          file._id,
+
+        userId:
+          userObjectId,
       },
     );
-
-    await SDHTransaction.updateMany(
-      {
-        generatedFileId: file._id,
-        userId,
-      },
-      {
-        $set: {
-          generatedFileId: null,
-        },
-      },
-    );
-
-    await GeneratedFile.deleteOne({
-      _id: file._id,
-      userId,
-    });
 
     return NextResponse.json(
       {
@@ -1248,7 +1998,9 @@ export async function DELETE(
         message:
           "File deleted successfully.",
       },
-      { status: 200 },
+      {
+        status: 200,
+      },
     );
   } catch (error) {
     console.error(
@@ -1260,9 +2012,11 @@ export async function DELETE(
       {
         success: false,
         message:
-          "Unable to delete generated file.",
+          "Unable to delete file.",
       },
-      { status: 500 },
+      {
+        status: 500,
+      },
     );
   }
 }
