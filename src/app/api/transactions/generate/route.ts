@@ -229,7 +229,7 @@ async function createXlsx(
       );
 
     if (duplicateCards.has(normalized)) {
-      for (let column = 1; column <= 5; column++) {
+      for (let column = 1; column <= 6; column++) {
         const cell = row.getCell(column);
 
         cell.fill = {
