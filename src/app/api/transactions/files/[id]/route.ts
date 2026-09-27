@@ -234,13 +234,17 @@ function findDuplicateCards(
 }
 
 // ============================================================
-// BUILD 5-COLUMN ROWS
+// BUILD REFERENCE-FORMAT ROWS
 //
 // A = Card Number
 // B = CR
 // C = Amount
 // D = PETY EXP
 // E = Department Code
+// F = one space
+// G:L = empty
+//
+// This matches the supplied SDH reference CSV/XLSX structure.
 // ============================================================
 
 function buildRows(
@@ -254,16 +258,19 @@ function buildRows(
       String(
         transaction.cardNumber,
       ),
-
       "CR",
-
       Number(
         transaction.amount,
       ).toFixed(2),
-
       "PETY EXP",
-
       departmentCode,
+      " ",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
     ],
   );
 }
@@ -285,7 +292,6 @@ function createCsv(
     );
 
   const content =
-    "\uFEFF" +
     rows
       .map((row) =>
         row
@@ -304,8 +310,15 @@ function createCsv(
 // CREATE XLSX
 //
 // IMPORTANT:
-// Only A:E are used.
-// No extra sixth column.
+// The generated workbook follows the supplied reference file:
+// - Main worksheet uses A:L.
+// - A:E contain transaction data.
+// - F contains exactly one space.
+// - G:L are empty.
+// - A:E keep the existing duplicate highlighting.
+// - A:E keep the existing borders/number formats.
+// - A is stored as text so card numbers are not converted.
+// - A second blank "Sheet1" worksheet is preserved.
 // ============================================================
 
 async function createXlsx(
@@ -341,7 +354,7 @@ async function createXlsx(
     );
 
   // ----------------------------------------------------------
-  // EXACTLY FIVE COLUMNS
+  // REFERENCE FORMAT: A:L
   // ----------------------------------------------------------
 
   worksheet.columns = [
@@ -365,6 +378,34 @@ async function createXlsx(
       key: "employeeCode",
       width: 11.21875,
     },
+    {
+      key: "space",
+      width: 3,
+    },
+    {
+      key: "g",
+      width: 3,
+    },
+    {
+      key: "h",
+      width: 3,
+    },
+    {
+      key: "i",
+      width: 3,
+    },
+    {
+      key: "j",
+      width: 3,
+    },
+    {
+      key: "k",
+      width: 3,
+    },
+    {
+      key: "l",
+      width: 3,
+    },
   ];
 
   const duplicateCards =
@@ -385,62 +426,63 @@ async function createXlsx(
         String(
           transaction.cardNumber,
         ),
-
         "CR",
-
         Number(
           transaction.amount,
         ),
-
         "PETY EXP",
-
         departmentCode,
+        " ",
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
       ]);
 
-    // --------------------------------------------------------
     // Card number as TEXT
-    // --------------------------------------------------------
-
     row.getCell(1).numFmt =
       "@";
-
     row.getCell(1).value =
       String(
         transaction.cardNumber,
       );
 
-    // --------------------------------------------------------
     // Type
-    // --------------------------------------------------------
-
     row.getCell(2).numFmt =
       "@";
 
-    // --------------------------------------------------------
     // Amount
-    // --------------------------------------------------------
-
     row.getCell(3).numFmt =
       "0.00";
 
-    // --------------------------------------------------------
     // Description
-    // --------------------------------------------------------
-
     row.getCell(4).numFmt =
       "@";
 
-    // --------------------------------------------------------
     // Department
-    // --------------------------------------------------------
-
     row.getCell(5).numFmt =
       "@";
 
-    // --------------------------------------------------------
-    // Borders
-    // --------------------------------------------------------
+    // F = exactly one space
+    row.getCell(6).numFmt =
+      "@";
+    row.getCell(6).value =
+      " ";
 
+    // G:L = empty
+    for (
+      let column = 7;
+      column <= 12;
+      column++
+    ) {
+      row.getCell(
+        column,
+      ).value = null;
+    }
+
+    // Borders - existing behavior on A:E
     for (
       let column = 1;
       column <= 5;
@@ -455,25 +497,19 @@ async function createXlsx(
         top: {
           style: "thin",
         },
-
         bottom: {
           style: "thin",
         },
-
         left: {
           style: "thin",
         },
-
         right: {
           style: "thin",
         },
       };
     }
 
-    // --------------------------------------------------------
     // Duplicate highlighting
-    // --------------------------------------------------------
-
     const normalized =
       normalizeCardNumber(
         transaction.cardNumber,
@@ -508,6 +544,11 @@ async function createXlsx(
       }
     }
   }
+
+  // Reference workbook contains a second blank Sheet1.
+  workbook.addWorksheet(
+    "Sheet1",
+  );
 
   const buffer =
     await workbook.xlsx.writeBuffer();
