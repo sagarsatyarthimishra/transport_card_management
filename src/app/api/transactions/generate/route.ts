@@ -23,13 +23,21 @@ interface GenerateRequestBody {
 const XLSX_CONTENT_TYPE =
   "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
 
-const CSV_CONTENT_TYPE = "text/csv; charset=utf-8";
+const CSV_CONTENT_TYPE =
+  "text/csv; charset=utf-8";
 
-function normalizeCardNumber(value: string): string {
-  return value.replace(/\s+/g, "").trim().toLowerCase();
+function normalizeCardNumber(
+  value: string,
+): string {
+  return value
+    .replace(/\s+/g, "")
+    .trim()
+    .toLowerCase();
 }
 
-function csvEscape(value: string | number): string {
+function csvEscape(
+  value: string | number,
+): string {
   const text = String(value);
 
   if (
@@ -38,13 +46,16 @@ function csvEscape(value: string | number): string {
     text.includes("\n") ||
     text.includes("\r")
   ) {
-    return `"${text.replace(/"/g, '""')}"`;
+    return `"${text.replace(
+      /"/g,
+      '""',
+    )}"`;
   }
 
   return text;
 }
 
-/**
+/*
  * Filename:
  *
  * SALARY_MMM11473_20210202_2609142030583.xlsx
@@ -54,12 +65,29 @@ function csvEscape(value: string | number): string {
 function createTimestamp(): string {
   const now = new Date();
 
-  const yy = String(now.getFullYear()).slice(-2);
-  const mm = String(now.getMonth() + 1).padStart(2, "0");
-  const dd = String(now.getDate()).padStart(2, "0");
-  const hh = String(now.getHours()).padStart(2, "0");
-  const min = String(now.getMinutes()).padStart(2, "0");
-  const ss = String(now.getSeconds()).padStart(2, "0");
+  const yy = String(
+    now.getFullYear(),
+  ).slice(-2);
+
+  const mm = String(
+    now.getMonth() + 1,
+  ).padStart(2, "0");
+
+  const dd = String(
+    now.getDate(),
+  ).padStart(2, "0");
+
+  const hh = String(
+    now.getHours(),
+  ).padStart(2, "0");
+
+  const min = String(
+    now.getMinutes(),
+  ).padStart(2, "0");
+
+  const ss = String(
+    now.getSeconds(),
+  ).padStart(2, "0");
 
   /*
    * 12-digit timestamp + 2-digit suffix.
@@ -67,7 +95,9 @@ function createTimestamp(): string {
    * This keeps the complete filename below 45 characters.
    */
   const suffix = String(
-    Math.floor(Math.random() * 100),
+    Math.floor(
+      Math.random() * 100,
+    ),
   ).padStart(2, "0");
 
   return `${yy}${mm}${dd}${hh}${min}${ss}${suffix}`;
@@ -79,13 +109,37 @@ function buildRows(
     amount: number;
   }[],
 ): string[][] {
-  return transactions.map((transaction) => [
-    String(transaction.cardNumber),
-    "CR",
-    Number(transaction.amount).toFixed(2),
-    "PETY EXP",
-    "MMM11473",
-  ]);
+  /*
+   * MMM bank/template structure:
+   *
+   * A = Card Number
+   * B = CR
+   * C = Amount
+   * D = PETY EXP
+   * E = MMM11473
+   * F = blank
+   *
+   * Total = 6 columns.
+   */
+  return transactions.map(
+    (transaction) => [
+      String(
+        transaction.cardNumber,
+      ),
+      "CR",
+      Number(
+        transaction.amount,
+      ).toFixed(2),
+      "PETY EXP",
+      "MMM11473",
+
+      /*
+       * Required trailing blank
+       * column F.
+       */
+      "",
+    ],
+  );
 }
 
 function findDuplicateCards(
@@ -93,22 +147,29 @@ function findDuplicateCards(
     cardNumber: string;
   }[],
 ): Set<string> {
-  const counts = new Map<string, number>();
+  const counts =
+    new Map<string, number>();
 
   for (const transaction of transactions) {
-    const normalized = normalizeCardNumber(
-      transaction.cardNumber,
-    );
+    const normalized =
+      normalizeCardNumber(
+        transaction.cardNumber,
+      );
 
     counts.set(
       normalized,
-      (counts.get(normalized) ?? 0) + 1,
+      (counts.get(normalized) ?? 0) +
+        1,
     );
   }
 
-  const duplicates = new Set<string>();
+  const duplicates =
+    new Set<string>();
 
-  for (const [cardNumber, count] of counts) {
+  for (const [
+    cardNumber,
+    count,
+  ] of counts) {
     if (count > 1) {
       duplicates.add(cardNumber);
     }
@@ -123,18 +184,39 @@ async function createXlsx(
     amount: number;
   }[],
 ): Promise<Buffer> {
-  const workbook = new ExcelJS.Workbook();
+  const workbook =
+    new ExcelJS.Workbook();
 
   const now = new Date();
 
-  workbook.creator = "Transport Department";
-  workbook.lastModifiedBy = "Transport Department";
+  workbook.creator =
+    "Transport Department";
+
+  workbook.lastModifiedBy =
+    "Transport Department";
+
   workbook.created = now;
   workbook.modified = now;
 
-  const worksheet = workbook.addWorksheet(
-    "SALARY_MMM11473_20210202_0RE00O",
-  );
+  const worksheet =
+    workbook.addWorksheet(
+      "SALARY_MMM11473_20210202_0RE00O",
+    );
+
+  /*
+   * IMPORTANT
+   *
+   * Bank/template structure:
+   *
+   * A = Card Number
+   * B = CR
+   * C = Amount
+   * D = PETY EXP
+   * E = MMM11473
+   * F = blank
+   *
+   * Total = 6 columns
+   */
 
   worksheet.columns = [
     {
@@ -157,10 +239,16 @@ async function createXlsx(
       key: "employeeCode",
       width: 11.21875,
     },
+    {
+      key: "blankF",
+      width: 11.21875,
+    },
   ];
 
   const duplicateCards =
-    findDuplicateCards(transactions);
+    findDuplicateCards(
+      transactions,
+    );
 
   /*
    * IMPORTANT:
@@ -173,33 +261,57 @@ async function createXlsx(
    */
 
   for (const transaction of transactions) {
-    const row = worksheet.addRow([
-      String(transaction.cardNumber),
-      "CR",
-      Number(transaction.amount),
-      "PETY EXP",
-      "MMM11473",
-    ]);
+    const row =
+      worksheet.addRow([
+        String(
+          transaction.cardNumber,
+        ),
+        "CR",
+        Number(
+          transaction.amount,
+        ),
+        "PETY EXP",
+        "MMM11473",
 
+        /*
+         * Required blank F.
+         */
+        "",
+      ]);
+
+    /*
+     * Card number remains text.
+     */
     row.getCell(1).numFmt = "@";
+
     row.getCell(1).value =
-      String(transaction.cardNumber);
+      String(
+        transaction.cardNumber,
+      );
 
     row.getCell(2).numFmt = "@";
 
-    row.getCell(3).numFmt = "0.00";
+    row.getCell(3).numFmt =
+      "0.00";
 
     row.getCell(4).numFmt = "@";
+
     row.getCell(5).numFmt = "@";
 
     /*
      * ALL BORDERS
      *
-     * Apply borders only to the five
-     * transaction columns A:E.
+     * Existing visual formatting
+     * remains on actual transaction
+     * columns A:E.
      */
-    for (let column = 1; column <= 5; column++) {
-      const cell = row.getCell(column);
+    for (
+      let column = 1;
+      column <= 5;
+      column++
+    ) {
+      const cell =
+        row.getCell(column);
 
       cell.border = {
         top: {
@@ -220,17 +332,29 @@ async function createXlsx(
     /*
      * DUPLICATE HIGHLIGHT
      *
-     * Every occurrence of duplicate card
-     * gets yellow highlight.
+     * Every occurrence of duplicate
+     * card gets yellow highlight.
+     *
+     * Only actual transaction
+     * columns A:E are highlighted.
      */
     const normalized =
       normalizeCardNumber(
         transaction.cardNumber,
       );
 
-    if (duplicateCards.has(normalized)) {
-      for (let column = 1; column <= 6; column++) {
-        const cell = row.getCell(column);
+    if (
+      duplicateCards.has(
+        normalized,
+      )
+    ) {
+      for (
+        let column = 1;
+        column <= 5;
+        column++
+      ) {
+        const cell =
+          row.getCell(column);
 
         cell.fill = {
           type: "pattern",
@@ -247,7 +371,8 @@ async function createXlsx(
     }
   }
 
-  const buffer = await workbook.xlsx.writeBuffer();
+  const buffer =
+    await workbook.xlsx.writeBuffer();
 
   return Buffer.from(buffer);
 }
@@ -258,28 +383,48 @@ function createCsv(
     amount: number;
   }[],
 ): Buffer {
-  const rows = buildRows(transactions);
+  const rows =
+    buildRows(transactions);
 
+  /*
+   * IMPORTANT:
+   *
+   * No UTF-8 BOM.
+   *
+   * Manual working file does not
+   * contain BOM.
+   *
+   * Windows CRLF line endings.
+   */
   const content =
-    "\uFEFF" +
     rows
       .map((row) =>
-        row.map(csvEscape).join(","),
+        row
+          .map(csvEscape)
+          .join(","),
       )
-      .join("\r\n");
+      .join("\r\n") +
+    "\r\n";
 
-  return Buffer.from(content, "utf8");
+  return Buffer.from(
+    content,
+    "utf8",
+  );
 }
 
-export async function POST(request: Request) {
+export async function POST(
+  request: Request,
+) {
   try {
-    const session = await getCurrentSession();
+    const session =
+      await getCurrentSession();
 
     if (!session) {
       return NextResponse.json(
         {
           success: false,
-          message: "Unauthorized.",
+          message:
+            "Unauthorized.",
         },
         { status: 401 },
       );
@@ -289,7 +434,9 @@ export async function POST(request: Request) {
       new URL(request.url);
 
     const download =
-      searchParams.get("download") !== "false";
+      searchParams.get(
+        "download",
+      ) !== "false";
 
     const requestedFormat =
       searchParams
@@ -305,12 +452,14 @@ export async function POST(request: Request) {
     let body: GenerateRequestBody;
 
     try {
-      body = await request.json();
+      body =
+        await request.json();
     } catch {
       return NextResponse.json(
         {
           success: false,
-          message: "Invalid request body.",
+          message:
+            "Invalid request body.",
         },
         { status: 400 },
       );
@@ -320,8 +469,11 @@ export async function POST(request: Request) {
       body.transactions;
 
     if (
-      !Array.isArray(inputTransactions) ||
-      inputTransactions.length === 0
+      !Array.isArray(
+        inputTransactions,
+      ) ||
+      inputTransactions.length ===
+        0
     ) {
       return NextResponse.json(
         {
@@ -333,7 +485,10 @@ export async function POST(request: Request) {
       );
     }
 
-    if (inputTransactions.length > 1000) {
+    if (
+      inputTransactions.length >
+      1000
+    ) {
       return NextResponse.json(
         {
           success: false,
@@ -347,7 +502,8 @@ export async function POST(request: Request) {
     for (const transaction of inputTransactions) {
       if (
         !transaction ||
-        typeof transaction.cardId !== "string" ||
+        typeof transaction.cardId !==
+          "string" ||
         !Types.ObjectId.isValid(
           transaction.cardId,
         )
@@ -363,8 +519,11 @@ export async function POST(request: Request) {
       }
 
       if (
-        typeof transaction.amount !== "number" ||
-        !Number.isFinite(transaction.amount) ||
+        typeof transaction.amount !==
+          "number" ||
+        !Number.isFinite(
+          transaction.amount,
+        ) ||
         transaction.amount <= 0
       ) {
         return NextResponse.json(
@@ -381,7 +540,9 @@ export async function POST(request: Request) {
     await connectToDatabase();
 
     const userObjectId =
-      new Types.ObjectId(session.userId);
+      new Types.ObjectId(
+        session.userId,
+      );
 
     const cardIds =
       inputTransactions.map(
@@ -389,14 +550,18 @@ export async function POST(request: Request) {
           transaction.cardId,
       );
 
-    const cards = await Card.find({
-      _id: {
-        $in: cardIds,
-      },
-      userId: userObjectId,
-    })
-      .select("_id cardNumber")
-      .lean();
+    const cards =
+      await Card.find({
+        _id: {
+          $in: cardIds,
+        },
+        userId:
+          userObjectId,
+      })
+        .select(
+          "_id cardNumber",
+        )
+        .lean();
 
     const cardMap =
       new Map<string, string>();
@@ -410,7 +575,9 @@ export async function POST(request: Request) {
 
     for (const transaction of inputTransactions) {
       if (
-        !cardMap.has(transaction.cardId)
+        !cardMap.has(
+          transaction.cardId,
+        )
       ) {
         return NextResponse.json(
           {
@@ -428,41 +595,37 @@ export async function POST(request: Request) {
      *
      * Preview is latest-first.
      *
-     * Example:
-     *
-     * Preview:
-     * Entry 4
-     * Entry 3
-     * Entry 2
-     * Entry 1
-     *
      * Generated file:
-     * Entry 1
-     * Entry 2
-     * Entry 3
-     * Entry 4
+     * oldest -> latest
      */
     const transactions = [
       ...inputTransactions,
     ].reverse();
 
     const resolvedTransactions =
-      transactions.map((transaction) => ({
-        cardNumber:
-          cardMap.get(
-            transaction.cardId,
-          )!,
-        amount:
-          Number(
-            transaction.amount.toFixed(2),
+      transactions.map(
+        (transaction) => ({
+          cardNumber:
+            cardMap.get(
+              transaction.cardId,
+            )!,
+
+          amount: Number(
+            transaction.amount.toFixed(
+              2,
+            ),
           ),
-        cardId: transaction.cardId,
-      }));
+
+          cardId:
+            transaction.cardId,
+        }),
+      );
 
     const totalAmount =
       resolvedTransactions.reduce(
         (total, transaction) =>
-          total + transaction.amount,
+          total +
+          transaction.amount,
         0,
       );
 
@@ -476,16 +639,18 @@ export async function POST(request: Request) {
     let contentType: string;
 
     if (format === "csv") {
-      fileBuffer = createCsv(
-        resolvedTransactions,
-      );
+      fileBuffer =
+        createCsv(
+          resolvedTransactions,
+        );
 
       contentType =
         CSV_CONTENT_TYPE;
     } else {
-      fileBuffer = await createXlsx(
-        resolvedTransactions,
-      );
+      fileBuffer =
+        await createXlsx(
+          resolvedTransactions,
+        );
 
       contentType =
         XLSX_CONTENT_TYPE;
@@ -502,14 +667,22 @@ export async function POST(request: Request) {
      */
     const generatedFile =
       await GeneratedFile.create({
-        userId: userObjectId,
+        userId:
+          userObjectId,
+
         fileName,
-        fileSize: fileBuffer.length,
+
+        fileSize:
+          fileBuffer.length,
+
         transactionCount:
           resolvedTransactions.length,
+
         totalAmount,
+
         fileData:
           new Binary(fileBuffer),
+
         contentType,
       });
 
@@ -524,17 +697,23 @@ export async function POST(request: Request) {
       await Transaction.insertMany(
         resolvedTransactions.map(
           (transaction) => ({
-            userId: userObjectId,
+            userId:
+              userObjectId,
+
             cardId:
               new Types.ObjectId(
                 transaction.cardId,
               ),
+
             cardNumber:
               transaction.cardNumber,
+
             amount:
               transaction.amount,
+
             status:
               "pending" as const,
+
             generatedFileId:
               generatedFile._id,
           }),
@@ -542,8 +721,11 @@ export async function POST(request: Request) {
       );
     } catch (transactionError) {
       await GeneratedFile.deleteOne({
-        _id: generatedFile._id,
-        userId: userObjectId,
+        _id:
+          generatedFile._id,
+
+        userId:
+          userObjectId,
       });
 
       throw transactionError;
@@ -556,17 +738,24 @@ export async function POST(request: Request) {
       return NextResponse.json(
         {
           success: true,
+
           message:
             "MMM transactions and file saved successfully.",
+
           data: {
             fileId:
               generatedFile._id.toString(),
+
             fileName,
+
             fileSize:
               fileBuffer.length,
+
             transactionCount:
               resolvedTransactions.length,
+
             totalAmount,
+
             format,
           },
         },
@@ -578,9 +767,12 @@ export async function POST(request: Request) {
      * DOWNLOAD
      */
     return new NextResponse(
-      new Uint8Array(fileBuffer),
+      new Uint8Array(
+        fileBuffer,
+      ),
       {
         status: 200,
+
         headers: {
           "Content-Type":
             contentType,
@@ -589,7 +781,9 @@ export async function POST(request: Request) {
             `attachment; filename="${fileName}"`,
 
           "Content-Length":
-            String(fileBuffer.length),
+            String(
+              fileBuffer.length,
+            ),
 
           "Cache-Control":
             "no-store, no-cache, must-revalidate",
